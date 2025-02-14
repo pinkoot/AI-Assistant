@@ -361,7 +361,6 @@ def search_exact():
         if not results:
             return jsonify({"error": "Place not found"}), 404
 
-        # Берем первое найденное место
         place = results[0]
         address_parts = place.get("location", {}).get("formatted_address", [])
         address = format_address(address_parts)
