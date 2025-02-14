@@ -1,9 +1,9 @@
 from flask import Flask, request, jsonify
+from urllib.parse import quote
 import requests
 
 app = Flask(__name__)
 
-# Ключи для OpenWeatherMap и Foursquare API
 WEATHER_API_KEY = "c2546bcfca6507032268c80b8997fb3c"
 FOURSQUARE_API_KEY = "fsq3883xRYaM2mu5DbJ0Eujas7ZQwwxhqZuuBkuk5i4Yiq0="
 
@@ -25,7 +25,6 @@ def get_location_by_ip():
 @app.route('/get_weather', methods=['GET'])
 def get_weather():
     city = request.args.get('city')
-    # Если город не указан, определяем местоположение по IP
     if not city:
         city, latitude, longitude = get_location_by_ip()
         if not city or not latitude or not longitude:
@@ -56,19 +55,14 @@ def get_weather():
 @app.route('/search_products', methods=['GET'])
 def search_products():
     query = request.args.get('query')
-    category = request.args.get('category', '')  # Добавляем параметр категории
     if not query:
         return jsonify({"error": "Query parameter is required"}), 400
 
-    # Поиск на Ozon
-    ozon_url = f"https://www.ozon.ru/search/?text={query.replace(' ', '+')}"
-    if category:
-        ozon_url += f"&category={category}"
+    encoded_query = quote(query)
 
-    # Поиск на Wildberries
-    wildberries_url = f"https://www.wildberries.ru/catalog/0/search.aspx?search={query.replace(' ', '+')}"
-    if category:
-        wildberries_url += f"&xsearch=1&subject={category}"
+    ozon_url = f"https://www.ozon.ru/search/?text={encoded_query}"
+
+    wildberries_url = f"https://www.wildberries.ru/catalog/0/search.aspx?search={encoded_query}"
 
     return jsonify({
         "ozon_link": ozon_url,
@@ -79,19 +73,20 @@ def search_products():
 @app.route('/search_food', methods=['GET'])
 def search_food():
     query = request.args.get('query')
-    category = request.args.get('category', '')  # Добавляем параметр категории
     if not query:
         return jsonify({"error": "Query parameter is required"}), 400
 
-    # Поиск на Яндекс.Маркет
-    yandex_market_url = f"https://market.yandex.ru/search?text={query.replace(' ', '+')}"
-    if category:
-        yandex_market_url += f"&how=aprice&local-offers-first=0&deliveryincluded=0&onstock=1&category={category}"
+    encoded_query = quote(query)
 
-    # Поиск на Сбермаркет
-    sbermarket_url = f"https://sbermarket.ru/search?query={query.replace(' ', '+')}"
-    if category:
-        sbermarket_url += f"&category={category}"
+    yandex_market_url = f"https://market.yandex.ru/search?text={encoded_query}"
+
+    sbermarket_url = (
+        f"https://kuper.ru/multisearch?"
+        f"q={encoded_query}&"
+        f"shippingMethod=by_courier&"
+        f"sid=1&"
+        f"vertical=all"
+    )
 
     return jsonify({
         "yandex_market_link": yandex_market_url,
@@ -104,14 +99,11 @@ def format_address(address_parts):
     if not address_parts:
         return "Address not available"
 
-    # Если адрес приходит как массив символов, объединяем его в строку
     if isinstance(address_parts, list):
         cleaned_address = "".join([part.strip() for part in address_parts if part.strip()])
     else:
-        # Если адрес уже строка, просто очищаем её
         cleaned_address = address_parts.strip()
 
-    # Разделяем адрес по запятым и снова соединяем для чистого форматирования
     cleaned_address = ", ".join([part.strip() for part in cleaned_address.split(",") if part.strip()])
 
     return cleaned_address
@@ -121,17 +113,13 @@ def generate_map_link(lat, lon, address=None, map_provider="google"):
     """Генерирует ссылку на Google Maps или Яндекс.Карты."""
     if lat and lon:
         if map_provider == "google":
-            # Google Maps
             return f"https://www.google.com/maps?q={lat},{lon}"
         elif map_provider == "yandex":
-            # Яндекс.Карты
             return f"https://yandex.ru/maps/?pt={lon},{lat}&z=17&l=map"
     elif address:
         if map_provider == "google":
-            # Google Maps с адресом
             return f"https://www.google.com/maps/search/?api=1&query={address.replace(' ', '+')}"
         elif map_provider == "yandex":
-            # Яндекс.Карты с адресом
             return f"https://yandex.ru/maps/?text={address.replace(' ', '+')}"
     return None
 
@@ -140,7 +128,7 @@ def generate_map_link(lat, lon, address=None, map_provider="google"):
 def find_restaurants():
     latitude = request.args.get('lat')
     longitude = request.args.get('lon')
-    map_provider = request.args.get('map_provider', 'google')  # По умолчанию Google Maps
+    map_provider = request.args.get('map_provider', 'google')
 
     if not latitude or not longitude:
         return jsonify({"error": "Latitude and Longitude are required"}), 400
@@ -152,7 +140,7 @@ def find_restaurants():
     params = {
         "ll": f"{latitude},{longitude}",
         "radius": 3000,
-        "categories": "13065",  # Категория ресторанов
+        "categories": "13065",
         "limit": 10
     }
 
@@ -175,7 +163,7 @@ def find_restaurants():
                 "address": address,
                 "description": "Restaurant",
                 "rating": place.get("rating", {}).get("score", "N/A"),
-                "map_link": generate_map_link(lat, lon, address, map_provider)  # Передаем провайдера карт
+                "map_link": generate_map_link(lat, lon, address, map_provider)
             }
             restaurants.append(restaurant)
 
@@ -189,7 +177,7 @@ def find_restaurants():
 def find_hotels():
     latitude = request.args.get('lat')
     longitude = request.args.get('lon')
-    map_provider = request.args.get('map_provider', 'google')  # По умолчанию Google Maps
+    map_provider = request.args.get('map_provider', 'google')
 
     if not latitude or not longitude:
         return jsonify({"error": "Latitude and Longitude are required"}), 400
@@ -200,8 +188,8 @@ def find_hotels():
     }
     params = {
         "ll": f"{latitude},{longitude}",
-        "radius": 3000,
-        "categories": "19048",  # Категория отелей
+        "radius": 5000,
+        "categories": "19048",
         "limit": 10
     }
 
@@ -224,7 +212,7 @@ def find_hotels():
                 "address": address,
                 "description": "Hotel",
                 "rating": place.get("rating", {}).get("score", "N/A"),
-                "map_link": generate_map_link(lat, lon, address, map_provider)  # Передаем провайдера карт
+                "map_link": generate_map_link(lat, lon, address, map_provider)
             }
             hotels.append(hotel)
 
@@ -238,7 +226,7 @@ def find_hotels():
 def get_address():
     latitude = request.args.get('lat')
     longitude = request.args.get('lon')
-    map_provider = request.args.get('map_provider', 'google')  # По умолчанию Google Maps
+    map_provider = request.args.get('map_provider', 'google')
 
     if not latitude or not longitude:
         return jsonify({"error": "Latitude and Longitude are required"}), 400
@@ -272,7 +260,119 @@ def get_address():
 
         return jsonify({
             "address": address,
-            "map_link": generate_map_link(lat, lon, address, map_provider)  # Передаем провайдера карт
+            "map_link": generate_map_link(lat, lon, address, map_provider)
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/search_web', methods=['GET'])
+def search_web():
+    query = request.args.get('query')
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+
+    encoded_query = quote(query)
+
+    google_url = f"https://www.google.com/search?q={encoded_query}"
+
+    yandex_url = f"https://yandex.ru/search/?text={encoded_query}"
+
+    return jsonify({
+        "google_link": google_url,
+        "yandex_link": yandex_url
+    })
+
+
+@app.route('/find_places', methods=['GET'])
+def find_places():
+    latitude = request.args.get('lat')
+    longitude = request.args.get('lon')
+    query = request.args.get('query')
+    map_provider = request.args.get('map_provider', 'google')
+
+    if not latitude or not longitude or not query:
+        return jsonify({"error": "Latitude, Longitude, and Query are required"}), 400
+
+    url = f"https://api.foursquare.com/v3/places/search"
+    headers = {
+        "Authorization": FOURSQUARE_API_KEY
+    }
+    params = {
+        "ll": f"{latitude},{longitude}",
+        "radius": 3000,
+        "query": query,
+        "limit": 10
+    }
+
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch places data"}), 500
+
+        places_data = response.json()
+        places = []
+
+        for place in places_data.get("results", []):
+            address_parts = place.get("location", {}).get("formatted_address", [])
+            address = format_address(address_parts)
+
+            lat = place.get("geocodes", {}).get("main", {}).get("latitude")
+            lon = place.get("geocodes", {}).get("main", {}).get("longitude")
+
+            places.append({
+                "name": place.get("name", "Unknown"),
+                "address": address,
+                "map_link": generate_map_link(lat, lon, address=address, map_provider=map_provider)
+            })
+
+        return jsonify(places)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/search_exact', methods=['GET'])
+def search_exact():
+    query = request.args.get('query')
+    map_provider = request.args.get('map_provider', 'google')
+
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+
+    # URL для Foursquare API
+    url = f"https://api.foursquare.com/v3/places/search"
+    headers = {
+        "Authorization": FOURSQUARE_API_KEY
+    }
+    params = {
+        "query": query,
+        "limit": 1
+    }
+
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch place data"}), 500
+
+        places_data = response.json()
+        results = places_data.get("results", [])
+        if not results:
+            return jsonify({"error": "Place not found"}), 404
+
+        # Берем первое найденное место
+        place = results[0]
+        address_parts = place.get("location", {}).get("formatted_address", [])
+        address = format_address(address_parts)
+
+        lat = place.get("geocodes", {}).get("main", {}).get("latitude")
+        lon = place.get("geocodes", {}).get("main", {}).get("longitude")
+
+        return jsonify({
+            "name": place.get("name", "Unknown"),
+            "address": address,
+            "map_link": generate_map_link(lat, lon, address=address, map_provider=map_provider)
         })
 
     except Exception as e:

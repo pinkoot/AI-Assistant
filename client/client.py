@@ -26,23 +26,8 @@ def search_products():
         print("Название товара не может быть пустым.")
         return
 
-    print("\nВыберите категорию:")
-    print("1. Электроника")
-    print("2. Одежда")
-    print("3. Бытовая техника")
-    print("4. Без категории")
-    category_choice = input("Введите номер категории: ")
-
-    category_map = {
-        "1": "electronics",
-        "2": "clothing",
-        "3": "appliances",
-        "4": ""
-    }
-    category = category_map.get(category_choice, "")
-
     url = "http://127.0.0.1:5000/search_products"
-    params = {"query": query, "category": category}
+    params = {"query": query}
     response = requests.get(url, params=params)
 
     if response.status_code == 200:
@@ -60,29 +45,14 @@ def search_food():
         print("Название продукта не может быть пустым.")
         return
 
-    print("\nВыберите категорию:")
-    print("1. Молочные продукты")
-    print("2. Овощи и фрукты")
-    print("3. Мясо и рыба")
-    print("4. Без категории")
-    category_choice = input("Введите номер категории: ")
-
-    category_map = {
-        "1": "dairy",
-        "2": "fruits_vegetables",
-        "3": "meat_fish",
-        "4": ""
-    }
-    category = category_map.get(category_choice, "")
-
     url = "http://127.0.0.1:5000/search_food"
-    params = {"query": query, "category": category}
+    params = {"query": query}
     response = requests.get(url, params=params)
 
     if response.status_code == 200:
         data = response.json()
         print(f"Результаты поиска для '{query}':")
-        print(f"1. Яндекс.Маркет: {data['yandex_market_link']}")
+        print(f"1. Яндекс Маркет: {data['yandex_market_link']}")
         print(f"2. Сбермаркет: {data['sbermarket_link']}")
     else:
         print("Ошибка при поиске продуктов:", response.json())
@@ -116,7 +86,7 @@ def choose_map_provider():
 
 
 def find_restaurants(lat=None, lon=None):
-    map_provider = choose_map_provider()  # Выбор карты
+    map_provider = choose_map_provider()
     if lat is None or lon is None:
         lat, lon = get_geolocation()
         if lat is None or lon is None:
@@ -143,7 +113,7 @@ def find_restaurants(lat=None, lon=None):
 
 
 def find_hotels(lat=None, lon=None):
-    map_provider = choose_map_provider()  # Выбор карты
+    map_provider = choose_map_provider()
     if lat is None or lon is None:
         lat, lon = get_geolocation()
         if lat is None or lon is None:
@@ -170,7 +140,7 @@ def find_hotels(lat=None, lon=None):
 
 
 def get_client_address(lat=None, lon=None):
-    map_provider = choose_map_provider()  # Выбор карты
+    map_provider = choose_map_provider()
     if lat is None or lon is None:
         lat, lon = get_geolocation()
         if lat is None or lon is None:
@@ -191,16 +161,92 @@ def get_client_address(lat=None, lon=None):
         print("Ошибка при получении адреса:", response.json())
 
 
+def search_web():
+    query = input("Введите запрос для поиска в интернете: ")
+    if not query:
+        print("Запрос не может быть пустым.")
+        return
+
+    url = "http://127.0.0.1:5000/search_web"
+    params = {"query": query}
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200:
+        data = response.json()
+        print(f"Результаты поиска для '{query}':")
+        print(f"1. Google: {data['google_link']}")
+        print(f"2. Яндекс: {data['yandex_link']}")
+    else:
+        print("Ошибка при поиске в интернете:", response.json())
+
+
+def find_places():
+    lat, lon = get_geolocation()
+    if lat is None or lon is None:
+        print("Не удалось определить вашу геопозицию.")
+        return
+
+    query = input("\nВведите запрос для поиска (например, 'аптека', 'магазин', 'театр'): ")
+    if not query:
+        print("Запрос не может быть пустым.")
+        return
+
+    # Выбор картографического сервиса
+    map_provider = choose_map_provider()
+
+    url = "http://127.0.0.1:5000/find_places"
+    params = {"lat": lat, "lon": lon, "query": query, "map_provider": map_provider}
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200:
+        places = response.json()
+        if not places:
+            print("Места не найдены.")
+        else:
+            print("\nБлижайшие места:")
+            for i, place in enumerate(places, start=1):
+                print(f"{i}. Название: {place['name']}")
+                print(f"   Адрес: {place['address']}")
+                print(f"   Ссылка на карты: {place['map_link']}\n")
+    else:
+        print("Ошибка при поиске мест:", response.json())
+
+
+def search_exact():
+    query = input("\nВведите адрес или название заведения для поиска: ")
+    if not query:
+        print("Запрос не может быть пустым.")
+        return
+
+    map_provider = choose_map_provider()
+
+    url = "http://127.0.0.1:5000/search_exact"
+    params = {"query": query, "map_provider": map_provider}
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200:
+        place = response.json()
+        print(f"\nРезультат поиска:")
+        print(f"- Название: {place['name']}")
+        print(f"- Адрес: {place['address']}")
+        print(f"- Ссылка на карты: {place['map_link']}")
+    else:
+        print("Ошибка при поиске места:", response.json())
+
+
 if __name__ == "__main__":
     while True:
         print("\nВыберите действие:")
         print("1. Получить погоду")
         print("2. Поиск товаров (Ozon, Wildberries)")
-        print("3. Поиск продовольственных товаров (Яндекс.Маркет, Сбермаркет)")
+        print("3. Поиск продовольственных товаров (Яндекс Маркет, Сбермаркет)")
         print("4. Найти рестораны")
         print("5. Найти отели")
         print("6. Узнать свой адрес")
-        print("7. Выход")
+        print("7. Поиск в интернете (Google, Яндекс)")
+        print("8. Поиск мест рядом")
+        print("9. Точный поиск места (по адресу или названию)")
+        print("10. Выход")
         choice = input("Введите номер действия: ")
 
         if choice == "1":
@@ -209,7 +255,7 @@ if __name__ == "__main__":
                 city = input("Введите название города: ")
                 get_weather(city=city)
             elif mode == "2":
-                get_weather()  # Автоматическое определение местоположения
+                get_weather()
             else:
                 print("Неверный выбор.")
 
@@ -229,6 +275,15 @@ if __name__ == "__main__":
             get_client_address()
 
         elif choice == "7":
+            search_web()
+
+        elif choice == "8":
+            find_places()
+
+        elif choice == "9":
+            search_exact()
+
+        elif choice == "10":
             print("До свидания!")
             break
 
