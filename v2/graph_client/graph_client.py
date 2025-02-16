@@ -1,13 +1,12 @@
 import sys
 import requests
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QGridLayout, QPushButton,
-                             QMessageBox, QDialog, QVBoxLayout, QLabel, QLineEdit, QTextEdit,
-                             QStackedWidget, QButtonGroup, QHBoxLayout, QFrame, QSizePolicy)
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QFont, QIcon, QColor, QLinearGradient, QPainter, QPalette
+from PyQt5.QtGui import QDesktopServices
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QGridLayout, QPushButton,
+    QMessageBox, QDialog, QVBoxLayout, QLineEdit, QTextEdit, QTextBrowser
+)
 
 
-# Исходные классы клиента (без изменений)
 class BaseClient:
     BASE_URL = "http://127.0.0.1:5000"
 
@@ -135,7 +134,6 @@ class PlacesClient(BaseClient):
         return self.geolocation.get_coordinates()
 
 
-# Стилизация
 STYLESHEET = """
 QMainWindow {
     background-color: #1a1a1a;
@@ -342,8 +340,9 @@ class SearchDialog(QDialog):
         self.search_btn.clicked.connect(self.do_search)
         layout.addWidget(self.search_btn)
 
-        self.result_area = QTextEdit()
-        self.result_area.setReadOnly(True)
+        self.result_area = QTextBrowser()
+        self.result_area.setOpenExternalLinks(True)
+        self.result_area.anchorClicked.connect(self.open_link)
         layout.addWidget(self.result_area)
 
     def do_search(self):
@@ -357,11 +356,21 @@ class SearchDialog(QDialog):
             self.parent.show_error(data["error"])
             return
 
-        results = []
+        result_text = []
         for key, label in self.parent.search_client.SERVICES[self.search_type]['results'].items():
-            results.append(f"{label}: {data.get(key, 'Н/Д')}")
+            url = data.get(key)
+            if url:
+                result_text.append(
+                    f'<p style="color:#00ff9d;">{label}: '
+                    f'<a href="{url}" style="color:#00ff9d;text-decoration:underline;">{url}</a></p>'
+                )
+            else:
+                result_text.append(f'<p style="color:#ff0000;">{label}: Ссылка недоступна</p>')
 
-        self.result_area.setText("\n".join(results))
+        self.result_area.setHtml('\n'.join(result_text))
+
+    def open_link(self, url):
+        QDesktopServices.openUrl(url)
 
 
 class ResultDialog(QDialog):
@@ -375,10 +384,60 @@ class ResultDialog(QDialog):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        text = QTextEdit()
-        text.setReadOnly(True)
-        text.setPlainText(str(self.data))
+        text = QTextBrowser()
+        text.setOpenExternalLinks(True)
+        text.anchorClicked.connect(self.open_link)
+        text.setHtml(self._format_data())
         layout.addWidget(text)
+
+    def open_link(self, url):
+        QDesktopServices.openUrl(url)
+
+    def _format_data(self):
+        if isinstance(self.data, list):
+            return self._format_list_data()
+        elif isinstance(self.data, dict):
+            return self._format_dict_data()
+        else:
+            return f"<pre>{self.data}</pre>"
+
+    def _format_list_data(self):
+        items_html = []
+        for item in self.data:
+            items_html.append(f"""
+                <div style="margin-bottom: 20px; border-bottom: 1px solid #00ff9d; padding-bottom: 10px;">
+                    <h3 style="margin: 0; color: #00ff9d;">{item.get('name', 'Название не указано')}</h3>
+                    <p style="margin: 5px 0; color: #00ff9d;">📍 {item.get('address', 'Адрес не указан')}</p>
+                    <p style="margin: 5px 0; color: {self._get_rating_color(item)};">★ Рейтинг: {item.get('rating', 'Н/Д')}</p>
+                    <p style="margin: 5px 0; color: #00ff9d;">🌐 <a href="{item.get('map_link', '')}" style="color: #00ff9d; text-decoration: none;">{item.get('map_link', 'Ссылка отсутствует')}</a></p>
+                </div>
+            """)
+        return f"""
+            <html>
+            <body style="color: #00ff9d; font-family: Arial; font-size: 12pt;">
+                {'<hr>'.join(items_html)}
+            </body>
+            </html>
+        """
+
+    def _format_dict_data(self):
+        if "address" in self.data:
+            return f"""
+                <html>
+                <body style="color: #00ff9d; font-family: Arial; font-size: 12pt;">
+                    <div style="margin-bottom: 20px;">
+                        <h3 style="margin: 0;">Текущий адрес</h3>
+                        <p>📍 {self.data['address']}</p>
+                        <p>🌐 <a href="{self.data.get('map_link', '')}" style="color: #00ff9d; text-decoration: none;">{self.data.get('map_link', 'Ссылка отсутствует')}</a></p>
+                    </div>
+                </body>
+                </html>
+            """
+        return f"<pre>{self.data}</pre>"
+
+    def _get_rating_color(self, item):
+        rating = item.get('rating', 'Н/Д')
+        return "#00ff00" if str(rating).isdigit() else "#888888"
 
 
 class PlacesSearchDialog(QDialog):
