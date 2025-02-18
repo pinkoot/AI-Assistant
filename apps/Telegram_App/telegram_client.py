@@ -121,8 +121,10 @@ class TelegramBot:
             return INPUT_QUERY
 
         elif text == "🔍 Места":
-            await update.message.reply_text("Что ищем? (например: аптека, банкомат)",
-                                            reply_markup=self._cancel_keyboard())
+            await update.message.reply_text(
+                "Что ищем? (например: аптека, банкомат)",
+                reply_markup=self._cancel_keyboard()
+            )
             context.user_data["action"] = "places"
             return INPUT_QUERY
 
@@ -164,7 +166,13 @@ class TelegramBot:
 
         elif action == "places":
             context.user_data["query"] = query
-            await update.message.reply_text("Отправьте ваше местоположение:", reply_markup=self._cancel_keyboard())
+            await update.message.reply_text(
+                "Отправьте ваше местоположение:",
+                reply_markup=ReplyKeyboardMarkup([
+                    [KeyboardButton("📍 Отправить местоположение", request_location=True)],
+                    ["🚫 Отмена"]
+                ], resize_keyboard=True)
+            )
             return GET_LOCATION
 
         elif action == "exact":
