@@ -1,17 +1,24 @@
 let mode = 'auto';
 let currentSearchType = '';
 
-// Show weather dialog
+function closeAllDialogs() {
+    document.querySelectorAll('.dialog').forEach(dialog => {
+        dialog.classList.add('hidden');
+    });
+}
+
 function showWeatherDialog() {
-    document.getElementById('weather-dialog').classList.remove('hidden');
+    closeAllDialogs();
+    const dialog = document.getElementById('weather-dialog');
+    dialog.classList.remove('hidden');
+
+    mode = 'auto';
+    document.getElementById('city-input').value = '';
+    document.getElementById('weather-result').textContent = '';
+    document.getElementById('toggle-mode-btn').textContent = 'Автоматическое определение';
+    document.getElementById('city-input').classList.add('hidden');
 }
 
-// Hide any dialog
-function hideDialog(dialogId) {
-    document.getElementById(dialogId).classList.add('hidden');
-}
-
-// Toggle weather input mode (manual/auto)
 function toggleMode() {
     const modeBtn = document.getElementById('toggle-mode-btn');
     const cityInput = document.getElementById('city-input');
@@ -21,7 +28,6 @@ function toggleMode() {
     cityInput.classList.toggle('hidden');
 }
 
-// Fetch weather data
 async function getWeather() {
     const cityInput = document.getElementById('city-input');
     const resultArea = document.getElementById('weather-result');
@@ -37,12 +43,9 @@ async function getWeather() {
 
     try {
         const response = await fetch(`http://127.0.0.1:5000/get_weather?city=${city}`);
-        if (!response.ok) {
-            throw new Error(`Ошибка HTTP: ${response.status} ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
         const data = await response.json();
-
         if (data.error) {
             resultArea.textContent = `Ошибка: ${data.error}`;
         } else {
@@ -58,142 +61,134 @@ async function getWeather() {
             resultArea.innerHTML = formattedWeather.replace(/\n/g, '<br>');
         }
     } catch (error) {
-        console.error("Ошибка при получении данных:", error);
-        resultArea.textContent = `Ошибка при получении данных: ${error.message}`;
+        resultArea.textContent = `Ошибка: ${error.message}`;
     }
 }
 
-// Show search dialog
 function showSearchDialog(type) {
-    const searchTitle = document.getElementById('search-title');
+    closeAllDialogs();
     const dialog = document.getElementById('search-dialog');
     dialog.classList.remove('hidden');
-    searchTitle.textContent = ["Поиск товаров", "Поиск продуктов", "Веб-поиск"][["products", "food", "web"].indexOf(type)];
-    currentSearchType = type; // Store the current search type
+
+    document.getElementById('search-input').value = '';
+    document.getElementById('search-results').innerHTML = '';
+
+    const titles = {
+        products: 'Поиск товаров',
+        food: 'Поиск продуктов',
+        web: 'Веб-поиск'
+    };
+    document.getElementById('search-title').textContent = titles[type];
+    currentSearchType = type;
 }
 
-// Perform search
 async function doSearch() {
-    const inputField = document.getElementById('search-input');
-    const resultsArea = document.getElementById('search-results');
-    const query = inputField.value.trim();
+    const input = document.getElementById('search-input');
+    const results = document.getElementById('search-results');
+    const query = input.value.trim();
 
     if (!query) {
-        alert("Запрос не может быть пустым.");
+        alert("Введите поисковый запрос");
         return;
     }
 
     try {
-        const response = await fetch(`http://127.0.0.1:5000/search_${currentSearchType}?query=${encodeURIComponent(query)}`);
+        const endpoint = currentSearchType === 'places'
+            ? `search_places?query=${query}`
+            : `search_${currentSearchType}?query=${query}`;
 
-        // Проверка статуса ответа
-        if (!response.ok) {
-            throw new Error(`Ошибка HTTP: ${response.status} ${response.statusText}`);
-        }
+        const response = await fetch(`http://127.0.0.1:5000/${endpoint}`);
+        if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
         const data = await response.json();
-
-        if (data.error) {
-            resultsArea.textContent = `Ошибка: ${data.error}`;
-        } else {
-            const links = Object.entries(data).map(([key, value]) => `<p>${key}: <a href="${value}" target="_blank">${value}</a></p>`).join('');
-            resultsArea.innerHTML = links || "Нет результатов.";
-        }
+        results.innerHTML = data.error
+            ? `Ошибка: ${data.error}`
+            : Object.entries(data).map(([key, val]) => `<p>${key}: <a href="${val}" target="_blank">${val}</a></p>`).join('');
     } catch (error) {
-        console.error("Ошибка при выполнении поиска:", error);
-        resultsArea.textContent = `Ошибка при выполнении поиска: ${error.message}`;
+        results.textContent = `Ошибка: ${error.message}`;
     }
 }
 
-// Handle places actions
 async function handlePlaces(type) {
+    closeAllDialogs();
     try {
         const response = await fetch(`http://127.0.0.1:5000/find_${type}`);
-        if (!response.ok) {
-            throw new Error(`Ошибка HTTP: ${response.status} ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
         const data = await response.json();
-
-        if (data.error) {
-            alert(data.error);
-        } else {
-            displayResults(`Результаты поиска (${type})`, data);
-        }
+        data.error ? alert(data.error) : displayResults(type === 'restaurants' ? 'Рестораны' : 'Отели', data);
     } catch (error) {
-        console.error("Ошибка при обработке мест:", error);
-        alert(`Ошибка при обработке мест: ${error.message}`);
+        alert(`Ошибка: ${error.message}`);
     }
 }
 
-// Get current address
 async function handleAddress() {
+    closeAllDialogs();
     try {
         const response = await fetch('http://127.0.0.1:5000/get_address');
-        if (!response.ok) {
-            throw new Error(`Ошибка HTTP: ${response.status} ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
         const data = await response.json();
-
-        if (data.error) {
-            alert(data.error);
-        } else {
-            displayResults("Текущий адрес", { address: data.address, map_link: data.map_link });
-        }
+        data.error
+            ? alert(data.error)
+            : displayResults('Адрес', {Адрес: data.address, Карта: data.map_link});
     } catch (error) {
-        console.error("Ошибка при получении текущего адреса:", error);
-        alert(`Ошибка при получении текущего адреса: ${error.message}`);
+        alert(`Ошибка: ${error.message}`);
     }
 }
 
-// Show places search dialog
 function showPlacesSearchDialog() {
+    closeAllDialogs();
     const dialog = document.getElementById('search-dialog');
-    const searchTitle = document.getElementById('search-title');
+
+    document.getElementById('search-input').value = '';
+    document.getElementById('search-results').innerHTML = '';
+
     dialog.classList.remove('hidden');
-    searchTitle.textContent = "Поиск мест";
+    document.getElementById('search-title').textContent = 'Поиск мест';
     currentSearchType = 'places';
 }
 
-// Show exact search dialog
 function showExactSearchDialog() {
+    closeAllDialogs();
     const dialog = document.getElementById('search-dialog');
-    const searchTitle = document.getElementById('search-title');
+
+    document.getElementById('search-input').value = '';
+    document.getElementById('search-results').innerHTML = '';
+
     dialog.classList.remove('hidden');
-    searchTitle.textContent = "Точный поиск";
+    document.getElementById('search-title').textContent = 'Точный поиск';
     currentSearchType = 'exact';
 }
 
-// Display results in a dialog
 function displayResults(title, data) {
-    const resultDialog = document.getElementById('result-dialog');
-    const resultTitle = document.getElementById('result-title');
-    const resultContent = document.getElementById('result-content');
+    closeAllDialogs();
+    const dialog = document.getElementById('result-dialog');
+    const content = document.getElementById('result-content');
 
-    resultTitle.textContent = title;
+    document.getElementById('result-title').textContent = title;
+    content.innerHTML = '';
 
     if (Array.isArray(data)) {
-        const itemsHtml = data.map(item => `
-            <div>
-                <strong>${item.name || 'Название не указано'}</strong><br>
-                Адрес: ${item.address || 'Адрес не указан'}<br>
-                Рейтинг: ${item.rating || 'Н/Д'}<br>
-                <a href="${item.map_link || '#'}" target="_blank">Карта</a>
+        content.innerHTML = data.map(item => `
+            <div class="result-item">
+                <strong>${item.name || 'Без названия'}</strong>
+                <p>Адрес: ${item.address || 'Нет данных'}</p>
+                <p>Рейтинг: ${item.rating || 'Н/Д'}</p>
+                <a href="${item.map_link}" target="_blank">Посмотреть на карте</a>
             </div>
         `).join('<hr>');
-        resultContent.innerHTML = itemsHtml || "Нет результатов.";
-    } else if (typeof data === 'object') {
-        const entries = Object.entries(data).map(([key, value]) => `<p>${key}: ${value || 'Недоступно'}</p>`).join('');
-        resultContent.innerHTML = entries || "Нет данных.";
     } else {
-        resultContent.textContent = data || "Нет данных.";
+        content.innerHTML = Object.entries(data).map(([key, val]) => `
+            <p><strong>${key}:</strong> ${val || 'Нет данных'}</p>
+        `).join('');
     }
 
-    resultDialog.classList.remove('hidden');
+    dialog.classList.remove('hidden');
 }
 
-// Open external links
-function openLink(url) {
-    window.open(url, '_blank');
-}
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.dialog') && !e.target.closest('button')) {
+        closeAllDialogs();
+    }
+});

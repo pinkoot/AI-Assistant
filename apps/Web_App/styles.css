@@ -65,3 +65,25 @@ input {
     width: 100%;
     margin-bottom: 10px;
 }
+
+#search-results,
+#result-content,
+#weather-result {
+    max-height: 300px;
+    overflow-y: auto;
+    word-break: break-all;
+    padding: 10px;
+    margin: 10px 0;
+    border: 1px solid #00ff9d33;
+    border-radius: 5px;
+}
+
+.dialog h2 {
+    margin-top: 0;
+}
+
+#search-results a,
+#result-content a {
+    color: #00ff9d;
+    text-decoration: underline;
+}
