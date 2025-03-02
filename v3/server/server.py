@@ -31,28 +31,6 @@ class RequestLog(db.Model):
     username = db.Column(db.String(100))
     first_name = db.Column(db.String(100))
     last_name = db.Column(db.String(100))
-    device_hostname = db.Column(db.String(100))
-    device_ip = db.Column(db.String(45))
-    browser_language = db.Column(db.String(50))
-    browser_platform = db.Column(db.String(50))
-    screen_width = db.Column(db.Integer)
-    screen_height = db.Column(db.Integer)
-    timezone = db.Column(db.String(50))
-    cookies_enabled = db.Column(db.Boolean)
-    online_status = db.Column(db.Boolean)
-    device_memory = db.Column(db.String(50))
-    hardware_concurrency = db.Column(db.String(50))
-    system = db.Column(db.String(100))
-    node_name = db.Column(db.String(100))
-    release = db.Column(db.String(100))
-    version = db.Column(db.String(100))
-    machine = db.Column(db.String(100))
-    processor = db.Column(db.String(100))
-    cpu_count = db.Column(db.Integer)
-    memory_total = db.Column(db.BigInteger)
-    disk_usage = db.Column(db.Float)
-    boot_time = db.Column(db.Float)
-    mac_address = db.Column(db.String(100))
 
 
 @app.after_request
@@ -62,30 +40,8 @@ def log_request(response):
         username = request.args.get('username')
         first_name = request.args.get('first_name')
         last_name = request.args.get('last_name')
-        device_hostname = request.args.get('device_hostname')
-        device_ip = request.args.get('device_ip')
-        browser_language = request.args.get('language')
-        browser_platform = request.args.get('platform')
-        screen_width = request.args.get('screenWidth')
-        screen_height = request.args.get('screenHeight')
-        timezone = request.args.get('timezone')
-        cookies_enabled = request.args.get('cookiesEnabled')
-        online_status = request.args.get('online')
-        device_memory = request.args.get('deviceMemory')
-        hardware_concurrency = request.args.get('hardwareConcurrency')
-        system = request.args.get('system')
-        node_name = request.args.get('node_name')
-        release = request.args.get('release')
-        version = request.args.get('version')
-        machine = request.args.get('machine')
-        processor = request.args.get('processor')
-        cpu_count = request.args.get('cpu_count')
-        memory_total = request.args.get('memory_total')
-        disk_usage = request.args.get('disk_usage')
-        boot_time = request.args.get('boot_time')
-        mac_address = request.args.get('mac_address')
 
-        log_entry = RequestLog(
+        data = RequestLog(
             method=request.method,
             path=request.path,
             request_data=str(request.args),
@@ -98,34 +54,12 @@ def log_request(response):
             user_id=user_id,
             username=username,
             first_name=first_name,
-            last_name=last_name,
-            device_hostname=device_hostname,
-            device_ip=device_ip,
-            browser_language=browser_language,
-            browser_platform=browser_platform,
-            screen_width=screen_width,
-            screen_height=screen_height,
-            timezone=timezone,
-            cookies_enabled=cookies_enabled == 'true',
-            online_status=online_status == 'true',
-            device_memory=device_memory,
-            hardware_concurrency=hardware_concurrency,
-            system=system,
-            node_name=node_name,
-            release=release,
-            version=version,
-            machine=machine,
-            processor=processor,
-            cpu_count=cpu_count,
-            memory_total=memory_total,
-            disk_usage=disk_usage,
-            boot_time=boot_time,
-            mac_address=mac_address
+            last_name=last_name
         )
-        db.session.add(log_entry)
+        db.session.add(data)
         db.session.commit()
     except Exception as e:
-        app.logger.error(f"Ошибка записи в БД: {str(e)}")
+        app.logger.error(f"Error logging request: {str(e)}")
     return response
 
 

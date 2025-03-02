@@ -42,7 +42,8 @@ async function getWeather() {
     }
 
     try {
-        const response = await fetch(`http://127.0.0.1:5000/get_weather?city=${city}`);
+        const userInfo = await getUserInfo();
+        const response = await fetch(`http://127.0.0.1:5000/get_weather?city=${city}&${new URLSearchParams(userInfo)}`);
         if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
         const data = await response.json();
@@ -62,6 +63,33 @@ async function getWeather() {
         }
     } catch (error) {
         resultArea.textContent = `Ошибка: ${error.message}`;
+    }
+}
+
+async function getUserInfo() {
+    try {
+        const ipResponse = await fetch('https://api.ipify.org?format=json');
+        const ipData = await ipResponse.json();
+
+        const browserInfo = {
+            ip: ipData.ip,
+            userAgent: navigator.userAgent,
+            language: navigator.language,
+            platform: navigator.platform,
+            screenWidth: window.screen.width,
+            screenHeight: window.screen.height,
+            isJavaScriptEnabled: true,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            cookiesEnabled: navigator.cookieEnabled,
+            online: navigator.onLine,
+            deviceMemory: navigator.deviceMemory || 'unknown',
+            hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
+        };
+
+        return browserInfo;
+    } catch (error) {
+        console.error("Ошибка получения информации о пользователе:", error);
+        return {};
     }
 }
 
@@ -93,9 +121,10 @@ async function doSearch() {
     }
 
     try {
+        const userInfo = await getUserInfo();
         const endpoint = currentSearchType === 'places'
-            ? `search_places?query=${query}`
-            : `search_${currentSearchType}?query=${query}`;
+            ? `search_places?query=${query}&${new URLSearchParams(userInfo)}`
+            : `search_${currentSearchType}?query=${query}&${new URLSearchParams(userInfo)}`;
 
         const response = await fetch(`http://127.0.0.1:5000/${endpoint}`);
         if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
@@ -112,7 +141,9 @@ async function doSearch() {
 async function handlePlaces(type) {
     closeAllDialogs();
     try {
-        const response = await fetch(`http://127.0.0.1:5000/find_${type}`);
+        const coords = await getCurrentLocation();
+        const userInfo = await getUserInfo();
+        const response = await fetch(`http://127.0.0.1:5000/find_${type}?lat=${coords.latitude}&lon=${coords.longitude}&${new URLSearchParams(userInfo)}`);
         if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
         const data = await response.json();
@@ -125,7 +156,9 @@ async function handlePlaces(type) {
 async function handleAddress() {
     closeAllDialogs();
     try {
-        const response = await fetch('http://127.0.0.1:5000/get_address');
+        const coords = await getCurrentLocation();
+        const userInfo = await getUserInfo();
+        const response = await fetch(`http://127.0.0.1:5000/get_address?lat=${coords.latitude}&lon=${coords.longitude}&${new URLSearchParams(userInfo)}`);
         if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
         const data = await response.json();
@@ -185,6 +218,19 @@ function displayResults(title, data) {
     }
 
     dialog.classList.remove('hidden');
+}
+
+async function getCurrentLocation() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject(new Error("Геолокация не поддерживается вашим браузером"));
+        } else {
+            navigator.geolocation.getCurrentPosition(
+                position => resolve(position.coords),
+                error => reject(new Error("Не удалось определить местоположение"))
+            );
+        }
+    });
 }
 
 document.addEventListener('click', (e) => {

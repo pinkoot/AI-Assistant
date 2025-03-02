@@ -146,51 +146,63 @@ class TelegramBot:
         action = context.user_data.get("action")
         query = text
 
-        if action == "products":
-            response = requests.get(f"{BASE_URL}/search_products", params={"query": query})
-            if response.status_code == 200:
-                data = response.json()
-                message = f"Результаты поиска товаров:\n\n🔗 Ozon: {data['ozon_link']}\n🔗 Wildberries: {data['wildberries_link']}"
+        try:
+            user_info = {
+                "user_id": update.message.from_user.id,
+                "username": update.message.from_user.username,
+                "first_name": update.message.from_user.first_name,
+                "last_name": update.message.from_user.last_name,
+            }
 
-        elif action == "food":
-            response = requests.get(f"{BASE_URL}/search_food", params={"query": query})
-            if response.status_code == 200:
-                data = response.json()
-                message = f"Результаты поиска еды:\n\n🔗 Яндекс.Маркет: {data['yandex_market_link']}\n🔗 СберМаркет: {data['sbermarket_link']}"
+            if action == "products":
+                response = requests.get(f"{BASE_URL}/search_products", params={"query": query, **user_info})
+                if response.status_code == 200:
+                    data = response.json()
+                    message = f"Результаты поиска товаров:\n\n🔗 Ozon: {data['ozon_link']}\n🔗 Wildberries: {data['wildberries_link']}"
 
-        elif action == "web":
-            response = requests.get(f"{BASE_URL}/search_web", params={"query": query})
-            if response.status_code == 200:
-                data = response.json()
-                message = f"Результаты поиска:\n\n🔍 Google: {data['google_link']}\n🔍 Яндекс: {data['yandex_link']}"
+            elif action == "food":
+                response = requests.get(f"{BASE_URL}/search_food", params={"query": query, **user_info})
+                if response.status_code == 200:
+                    data = response.json()
+                    message = f"Результаты поиска еды:\n\n🔗 Яндекс.Маркет: {data['yandex_market_link']}\n🔗 СберМаркет: {data['sbermarket_link']}"
 
-        elif action == "places":
-            context.user_data["query"] = query
-            await update.message.reply_text(
-                "Отправьте ваше местоположение:",
-                reply_markup=ReplyKeyboardMarkup([
-                    [KeyboardButton("📍 Отправить местоположение", request_location=True)],
-                    ["🚫 Отмена"]
-                ], resize_keyboard=True)
-            )
-            return GET_LOCATION
+            elif action == "web":
+                response = requests.get(f"{BASE_URL}/search_web", params={"query": query, **user_info})
+                if response.status_code == 200:
+                    data = response.json()
+                    message = f"Результаты поиска:\n\n🔍 Google: {data['google_link']}\n🔍 Яндекс: {data['yandex_link']}"
 
-        elif action == "exact":
-            response = requests.get(f"{BASE_URL}/search_exact", params={"query": query})
-            if response.status_code == 200:
-                data = response.json()
-                if "error" in data:
-                    message = "❌ " + data["error"]
-                else:
-                    message = (
-                        f"📍 {data['name']}\n"
-                        f"Адрес: {data['address']}\n"
-                        f"Рейтинг: {data.get('rating', 'Н/Д')}\n"
-                        f"Ссылка на карту: {data['map_link']}"
-                    )
+            elif action == "places":
+                context.user_data["query"] = query
+                await update.message.reply_text(
+                    "Отправьте ваше местоположение:",
+                    reply_markup=ReplyKeyboardMarkup([
+                        [KeyboardButton("📍 Отправить местоположение", request_location=True)],
+                        ["🚫 Отмена"]
+                    ], resize_keyboard=True)
+                )
+                return GET_LOCATION
 
-        if response.status_code != 200:
-            message = "⚠️ Ошибка при выполнении запроса"
+            elif action == "exact":
+                response = requests.get(f"{BASE_URL}/search_exact", params={"query": query, **user_info})
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        message = "❌ " + data["error"]
+                    else:
+                        message = (
+                            f"📍 {data['name']}\n"
+                            f"Адрес: {data['address']}\n"
+                            f"Рейтинг: {data.get('rating', 'Н/Д')}\n"
+                            f"Ссылка на карту: {data['map_link']}"
+                        )
+
+            if response.status_code != 200:
+                message = "⚠️ Ошибка при выполнении запроса"
+
+        except Exception as e:
+            logger.error(f"Ошибка: {str(e)}")
+            message = "⚠️ Произошла внутренняя ошибка"
 
         await update.message.reply_text(message, disable_web_page_preview=True)
         return await self._return_to_main(update)
@@ -203,8 +215,15 @@ class TelegramBot:
         action = context.user_data.get("action")
 
         try:
+            user_info = {
+                "user_id": update.message.from_user.id,
+                "username": update.message.from_user.username,
+                "first_name": update.message.from_user.first_name,
+                "last_name": update.message.from_user.last_name,
+            }
+
             if action == "weather":
-                response = requests.get(f"{BASE_URL}/get_weather", params={"lat": lat, "lon": lon})
+                response = requests.get(f"{BASE_URL}/get_weather", params={"lat": lat, "lon": lon, **user_info})
                 if response.status_code == 200:
                     data = response.json()
                     message = (
@@ -218,15 +237,15 @@ class TelegramBot:
                     )
 
             elif action == "restaurants":
-                response = requests.get(f"{BASE_URL}/find_restaurants", params={"lat": lat, "lon": lon})
+                response = requests.get(f"{BASE_URL}/find_restaurants", params={"lat": lat, "lon": lon, **user_info})
                 message = self._format_places(response, "Рестораны")
 
             elif action == "hotels":
-                response = requests.get(f"{BASE_URL}/find_hotels", params={"lat": lat, "lon": lon})
+                response = requests.get(f"{BASE_URL}/find_hotels", params={"lat": lat, "lon": lon, **user_info})
                 message = self._format_places(response, "Отели")
 
             elif action == "address":
-                response = requests.get(f"{BASE_URL}/get_address", params={"lat": lat, "lon": lon})
+                response = requests.get(f"{BASE_URL}/get_address", params={"lat": lat, "lon": lon, **user_info})
                 if response.status_code == 200:
                     data = response.json()
                     message = f"📍 Текущий адрес:\n{data.get('address', 'Не определен')}\nСсылка на карту: {data.get('map_link', '')}"
@@ -236,7 +255,8 @@ class TelegramBot:
                 response = requests.get(f"{BASE_URL}/find_places", params={
                     "lat": lat,
                     "lon": lon,
-                    "query": query
+                    "query": query,
+                    **user_info
                 })
                 message = self._format_places(response, "Результаты поиска")
 
@@ -244,7 +264,7 @@ class TelegramBot:
                 message = "⚠️ Ошибка при выполнении запроса"
 
         except Exception as e:
-            logger.error(f"Error: {str(e)}")
+            logger.error(f"Ошибка: {str(e)}")
             message = "⚠️ Произошла внутренняя ошибка"
 
         await update.message.reply_text(message, disable_web_page_preview=True)
