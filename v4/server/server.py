@@ -72,6 +72,42 @@ class RequestLog(db.Model):
     status_code = db.Column(db.Integer)
     user_agent = db.Column(db.Text)
     client_ip = db.Column(db.String(45))
+    user_city = db.Column(db.String(100))
+    user_country = db.Column(db.String(100))
+    user_id = db.Column(db.String(100))
+    username = db.Column(db.String(100))
+    first_name = db.Column(db.String(100))
+    last_name = db.Column(db.String(100))
+
+
+@app.after_request
+def log_request(response):
+    try:
+        user_id = request.args.get('user_id')
+        username = request.args.get('username')
+        first_name = request.args.get('first_name')
+        last_name = request.args.get('last_name')
+
+        data = RequestLog(
+            method=request.method,
+            path=request.path,
+            request_data=str(request.args),
+            response_data=str(response.get_data())[:500],
+            status_code=response.status_code,
+            user_agent=request.headers.get('User-Agent'),
+            client_ip=request.remote_addr,
+            user_city=request.headers.get('X-User-City', ''),
+            user_country=request.headers.get('X-User-Country', ''),
+            user_id=user_id,
+            username=username,
+            first_name=first_name,
+            last_name=last_name
+        )
+        db.session.add(data)
+        db.session.commit()
+    except Exception as e:
+        app.logger.error(f"Error logging request: {str(e)}")
+    return response
 
 
 class EncryptedServer:

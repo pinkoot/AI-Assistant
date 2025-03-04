@@ -101,11 +101,10 @@ class DeviceInfo:
                 "memory_total": psutil.virtual_memory().total,
                 "disk_usage": psutil.disk_usage('/').percent,
                 "boot_time": psutil.boot_time(),
-                "mac_address": ':'.join(
-                    ['{:02x}'.format((uuid.getnode() >> ele) & 0xff) for ele in range(0, 8 * 6, 8)][::-1])
+                "mac_address": ':'.join(['{:02x}'.format((uuid.getnode() >> ele) & 0xff) for ele in range(0,8*6,8)][::-1])
             }
         except Exception as e:
-            logger.error(f"Ошибка получения информации об устройстве: {e}")
+            print(f"Ошибка получения информации об устройстве: {e}")
             return {}
 
 
