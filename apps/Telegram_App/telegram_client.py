@@ -9,6 +9,12 @@ from telegram.ext import (
     ConversationHandler
 )
 import requests
+import hmac
+import hashlib
+import socket
+import platform
+import psutil
+import uuid
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -17,17 +23,129 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BASE_URL = "http://127.0.0.1:5000"
+HMAC_KEY = "негр"
+SECRET_KEY = "негр"
 
 INPUT_QUERY, GET_LOCATION = range(2)
 
 
-class TelegramBot:
+class VigenereCipher:
+    def __init__(self, key: str):
+        if not key:
+            raise ValueError("Ключ не может быть пустым")
+        self.key = key.lower().replace(' ', '')
+        self.alphabet = 'абвгдежзийклмнопрстуфхцчшщъыьэюя0123456789.,- '
+        self.char_to_index = {char: i for i, char in enumerate(self.alphabet)}
+
+    def encrypt(self, text: str) -> str:
+        encrypted = []
+        key_index = 0
+        for char in text.lower():
+            if char in self.alphabet:
+                shift = self.char_to_index[self.key[key_index % len(self.key)]]
+                encrypted_char = self.alphabet[(self.char_to_index[char] + shift) % len(self.alphabet)]
+                encrypted.append(encrypted_char)
+                key_index += 1
+            else:
+                encrypted.append(char)
+        return ''.join(encrypted)
+
+    def decrypt(self, text: str) -> str:
+        decrypted = []
+        key_index = 0
+        for char in text.lower():
+            if char in self.alphabet:
+                shift = self.char_to_index[self.key[key_index % len(self.key)]]
+                decrypted_char = self.alphabet[(self.char_to_index[char] - shift) % len(self.alphabet)]
+                decrypted.append(decrypted_char)
+                key_index += 1
+            else:
+                decrypted.append(char)
+        return ''.join(decrypted)
+
+
+class EncryptedClient:
+    def __init__(self):
+        self.cipher = VigenereCipher(SECRET_KEY)
+
+    def encrypt_request(self, params):
+        try:
+            return {k: self.cipher.encrypt(str(v)) for k, v in params.items()}
+        except Exception as e:
+            logger.error(f"Ошибка шифрования: {e}")
+            return params
+
+    def decrypt_response(self, data):
+        try:
+            if isinstance(data, dict):
+                return {k: self.cipher.decrypt(v) for k, v in data.items()}
+            return data
+        except Exception as e:
+            logger.error(f"Ошибка дешифровки: {e}")
+            return data
+
+    def generate_hmac(self, data):
+        return hmac.new(HMAC_KEY.encode(), str(data).encode(), hashlib.sha256).hexdigest()
+
+
+class DeviceInfo:
+    @staticmethod
+    def get_device_info():
+        try:
+            hostname = socket.gethostname()
+            ip_address = socket.gethostbyname(hostname)
+            system_info = platform.uname()
+            return {
+                "hostname": hostname,
+                "ip_address": ip_address,
+                "system": system_info.system,
+                "node_name": system_info.node,
+                "release": system_info.release,
+                "version": system_info.version,
+                "machine": system_info.machine,
+                "processor": system_info.processor,
+                "cpu_count": psutil.cpu_count(logical=True),
+                "memory_total": psutil.virtual_memory().total,
+                "disk_usage": psutil.disk_usage('/').percent,
+                "boot_time": psutil.boot_time(),
+                "mac_address": ':'.join(
+                    ['{:02x}'.format((uuid.getnode() >> ele) & 0xff) for ele in range(0, 8 * 6, 8)][::-1])
+            }
+        except Exception as e:
+            logger.error(f"Ошибка получения информации об устройстве: {e}")
+            return {}
+
+
+class BaseClient:
+    def __init__(self):
+        self.encryption_handler = EncryptedClient()
+        self.device_info = DeviceInfo.get_device_info()
+
+    def _prepare_params(self, params):
+        combined = {**params, **self.device_info}
+        encrypted = self.encryption_handler.encrypt_request(combined)
+        return {
+            "params": encrypted,
+            "headers": {"X-HMAC-Signature": self.encryption_handler.generate_hmac(encrypted)}
+        }
+
+    def _process_response(self, response):
+        try:
+            response.raise_for_status()
+            encrypted_data = response.json()
+            return self.encryption_handler.decrypt_response(encrypted_data)
+        except Exception as e:
+            logger.error(f"Ошибка обработки ответа: {str(e)}")
+            return {"error": "Ошибка обработки данных"}
+
+
+class TelegramBot(BaseClient):
     def __init__(self, token: str):
+        super().__init__()
         self.application = Application.builder().token(token).build()
         self._register_handlers()
 
     def _main_keyboard(self):
-        """Клавиатура главного меню"""
         return ReplyKeyboardMarkup([
             ["🌤 Погода", "🛍 Товары"],
             ["🍔 Еда", "🍴 Рестораны"],
@@ -37,11 +155,9 @@ class TelegramBot:
         ], resize_keyboard=True)
 
     def _cancel_keyboard(self):
-        """Клавиатура для отмены действия"""
         return ReplyKeyboardMarkup([["🚫 Отмена"]], resize_keyboard=True)
 
     def _register_handlers(self):
-        """Регистрация обработчиков"""
         conv_handler = ConversationHandler(
             entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_main_menu)],
             states={
@@ -58,7 +174,6 @@ class TelegramBot:
         self.application.add_error_handler(self._error_handler)
 
     async def _handle_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик главного меню"""
         text = update.message.text
         context.user_data.clear()
 
@@ -137,7 +252,6 @@ class TelegramBot:
         return ConversationHandler.END
 
     async def _handle_text_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка текстового ввода"""
         text = update.message.text
 
         if text == "🚫 Отмена":
@@ -147,7 +261,7 @@ class TelegramBot:
         query = text
 
         try:
-            user_info = {
+            base_params = {
                 "user_id": update.message.from_user.id,
                 "username": update.message.from_user.username,
                 "first_name": update.message.from_user.first_name,
@@ -155,22 +269,22 @@ class TelegramBot:
             }
 
             if action == "products":
-                response = requests.get(f"{BASE_URL}/search_products", params={"query": query, **user_info})
-                if response.status_code == 200:
-                    data = response.json()
-                    message = f"Результаты поиска товаров:\n\n🔗 Ozon: {data['ozon_link']}\n🔗 Wildberries: {data['wildberries_link']}"
+                prepared = self._prepare_params({**base_params, "query": query})
+                response = requests.get(f"{BASE_URL}/search_products", **prepared)
+                data = self._process_response(response)
+                message = f"Результаты поиска товаров:\n\n🔗 Ozon: {data['ozon_link']}\n🔗 Wildberries: {data['wildberries_link']}"
 
             elif action == "food":
-                response = requests.get(f"{BASE_URL}/search_food", params={"query": query, **user_info})
-                if response.status_code == 200:
-                    data = response.json()
-                    message = f"Результаты поиска еды:\n\n🔗 Яндекс.Маркет: {data['yandex_market_link']}\n🔗 СберМаркет: {data['sbermarket_link']}"
+                prepared = self._prepare_params({**base_params, "query": query})
+                response = requests.get(f"{BASE_URL}/search_food", **prepared)
+                data = self._process_response(response)
+                message = f"Результаты поиска еды:\n\n🔗 Яндекс.Маркет: {data['yandex_market_link']}\n🔗 СберМаркет: {data['sbermarket_link']}"
 
             elif action == "web":
-                response = requests.get(f"{BASE_URL}/search_web", params={"query": query, **user_info})
-                if response.status_code == 200:
-                    data = response.json()
-                    message = f"Результаты поиска:\n\n🔍 Google: {data['google_link']}\n🔍 Яндекс: {data['yandex_link']}"
+                prepared = self._prepare_params({**base_params, "query": query})
+                response = requests.get(f"{BASE_URL}/search_web", **prepared)
+                data = self._process_response(response)
+                message = f"Результаты поиска:\n\n🔍 Google: {data['google_link']}\n🔍 Яндекс: {data['yandex_link']}"
 
             elif action == "places":
                 context.user_data["query"] = query
@@ -184,18 +298,18 @@ class TelegramBot:
                 return GET_LOCATION
 
             elif action == "exact":
-                response = requests.get(f"{BASE_URL}/search_exact", params={"query": query, **user_info})
-                if response.status_code == 200:
-                    data = response.json()
-                    if "error" in data:
-                        message = "❌ " + data["error"]
-                    else:
-                        message = (
-                            f"📍 {data['name']}\n"
-                            f"Адрес: {data['address']}\n"
-                            f"Рейтинг: {data.get('rating', 'Н/Д')}\n"
-                            f"Ссылка на карту: {data['map_link']}"
-                        )
+                prepared = self._prepare_params({**base_params, "query": query})
+                response = requests.get(f"{BASE_URL}/search_exact", **prepared)
+                data = self._process_response(response)
+                if "error" in data:
+                    message = "❌ " + data["error"]
+                else:
+                    message = (
+                        f"📍 {data['name']}\n"
+                        f"Адрес: {data['address']}\n"
+                        f"Рейтинг: {data.get('rating', 'Н/Д')}\n"
+                        f"Ссылка на карту: {data['map_link']}"
+                    )
 
             if response.status_code != 200:
                 message = "⚠️ Ошибка при выполнении запроса"
@@ -208,57 +322,59 @@ class TelegramBot:
         return await self._return_to_main(update)
 
     async def _handle_location(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка геолокации"""
         location = update.message.location
         lat = location.latitude
         lon = location.longitude
         action = context.user_data.get("action")
 
         try:
-            user_info = {
+            base_params = {
                 "user_id": update.message.from_user.id,
                 "username": update.message.from_user.username,
                 "first_name": update.message.from_user.first_name,
                 "last_name": update.message.from_user.last_name,
+                "lat": str(lat),
+                "lon": str(lon)
             }
 
             if action == "weather":
-                response = requests.get(f"{BASE_URL}/get_weather", params={"lat": lat, "lon": lon, **user_info})
-                if response.status_code == 200:
-                    data = response.json()
-                    message = (
-                        f"🌤 Погода в {data['city']}:\n"
-                        f"🌡 Температура: {data['temperature']}°C\n"
-                        f"💨 Ощущается как: {data['feels_like']}°C\n"
-                        f"💧 Влажность: {data['humidity']}%\n"
-                        f"🌀 Давление: {data['pressure']} hPa\n"
-                        f"🌪 Ветер: {data['wind_speed']} м/с\n"
-                        f"📝 Описание: {data['description']}"
-                    )
+                prepared = self._prepare_params(base_params)
+                response = requests.get(f"{BASE_URL}/get_weather", **prepared)
+                data = self._process_response(response)
+                message = (
+                    f"🌤 Погода в {data['city']}:\n"
+                    f"🌡 Температура: {data['temperature']}°C\n"
+                    f"💨 Ощущается как: {data['feels_like']}°C\n"
+                    f"💧 Влажность: {data['humidity']}%\n"
+                    f"🌀 Давление: {data['pressure']} hPa\n"
+                    f"🌪 Ветер: {data['wind_speed']} м/с\n"
+                    f"📝 Описание: {data['description']}"
+                )
 
             elif action == "restaurants":
-                response = requests.get(f"{BASE_URL}/find_restaurants", params={"lat": lat, "lon": lon, **user_info})
-                message = self._format_places(response, "Рестораны")
+                prepared = self._prepare_params(base_params)
+                response = requests.get(f"{BASE_URL}/find_restaurants", **prepared)
+                data = self._process_response(response)
+                message = self._format_places(data, "Рестораны")
 
             elif action == "hotels":
-                response = requests.get(f"{BASE_URL}/find_hotels", params={"lat": lat, "lon": lon, **user_info})
-                message = self._format_places(response, "Отели")
+                prepared = self._prepare_params(base_params)
+                response = requests.get(f"{BASE_URL}/find_hotels", **prepared)
+                data = self._process_response(response)
+                message = self._format_places(data, "Отели")
 
             elif action == "address":
-                response = requests.get(f"{BASE_URL}/get_address", params={"lat": lat, "lon": lon, **user_info})
-                if response.status_code == 200:
-                    data = response.json()
-                    message = f"📍 Текущий адрес:\n{data.get('address', 'Не определен')}\nСсылка на карту: {data.get('map_link', '')}"
+                prepared = self._prepare_params(base_params)
+                response = requests.get(f"{BASE_URL}/get_address", **prepared)
+                data = self._process_response(response)
+                message = f"📍 Текущий адрес:\n{data.get('address', 'Не определен')}\nСсылка на карту: {data.get('map_link', '')}"
 
             elif action == "places":
                 query = context.user_data.get("query")
-                response = requests.get(f"{BASE_URL}/find_places", params={
-                    "lat": lat,
-                    "lon": lon,
-                    "query": query,
-                    **user_info
-                })
-                message = self._format_places(response, "Результаты поиска")
+                prepared = self._prepare_params({**base_params, "query": query})
+                response = requests.get(f"{BASE_URL}/find_places", **prepared)
+                data = self._process_response(response)
+                message = self._format_places(data, "Результаты поиска")
 
             if response.status_code != 200:
                 message = "⚠️ Ошибка при выполнении запроса"
@@ -271,70 +387,59 @@ class TelegramBot:
         return await self._return_to_main(update)
 
     async def _handle_location_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка текстового ввода города для погоды"""
         text = update.message.text
 
         if text == "🚫 Отмена":
             return await self._cancel(update, context)
 
         city = text
-        response = requests.get(f"{BASE_URL}/get_weather", params={"q": city})
+        prepared = self._prepare_params({"q": city})
+        response = requests.get(f"{BASE_URL}/get_weather", **prepared)
+        data = self._process_response(response)
 
-        if response.status_code == 200:
-            data = response.json()
-            if "error" in data:
-                message = "❌ " + data["error"]
-            else:
-                message = (
-                    f"🌤 Погода в {data['city']}:\n"
-                    f"🌡 Температура: {data['temperature']}°C\n"
-                    f"💨 Ощущается как: {data['feels_like']}°C\n"
-                    f"💧 Влажность: {data['humidity']}%\n"
-                    f"🌀 Давление: {data['pressure']} hPa\n"
-                    f"🌪 Ветер: {data['wind_speed']} м/с\n"
-                    f"📝 Описание: {data['description']}"
-                )
+        if "error" in data:
+            message = "❌ " + data["error"]
         else:
-            message = "⚠️ Ошибка при получении данных"
+            message = (
+                f"🌤 Погода в {data['city']}:\n"
+                f"🌡 Температура: {data['temperature']}°C\n"
+                f"💨 Ощущается как: {data['feels_like']}°C\n"
+                f"💧 Влажность: {data['humidity']}%\n"
+                f"🌀 Давление: {data['pressure']} hPa\n"
+                f"🌪 Ветер: {data['wind_speed']} м/с\n"
+                f"📝 Описание: {data['description']}"
+            )
 
         await update.message.reply_text(message)
         return await self._return_to_main(update)
 
-    def _format_places(self, response, title):
-        """Форматирование списка мест"""
-        if response.status_code == 200:
-            places = response.json()
-            if not places:
-                return "❌ Ничего не найдено"
+    def _format_places(self, places, title):
+        if not places:
+            return "❌ Ничего не найдено"
 
-            message = [f"🏷 {title}:"]
-            for place in places[:5]:
-                message.append(
-                    f"\n📍 {place.get('name', 'Без названия')}\n"
-                    f"Адрес: {place.get('address', 'Не указан')}\n"
-                    f"Рейтинг: {place.get('rating', 'Н/Д')}\n"
-                    f"Ссылка: {place.get('map_link', 'Нет ссылки')}\n"
-                )
-            return "\n".join(message)
-        return "⚠️ Ошибка при получении данных"
+        message = [f"🏷 {title}:"]
+        for place in places[:5]:
+            message.append(
+                f"\n📍 {place.get('name', 'Без названия')}\n"
+                f"Адрес: {place.get('address', 'Не указан')}\n"
+                f"Рейтинг: {place.get('rating', 'Н/Д')}\n"
+                f"Ссылка: {place.get('map_link', 'Нет ссылки')}\n"
+            )
+        return "\n".join(message)
 
     async def _return_to_main(self, update: Update):
-        """Возврат в главное меню"""
         await update.message.reply_text("Выберите действие:", reply_markup=self._main_keyboard())
         return ConversationHandler.END
 
     async def _cancel(self, update: Update):
-        """Отмена действия"""
         await update.message.reply_text("Действие отменено", reply_markup=self._main_keyboard())
         return ConversationHandler.END
 
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка ошибок"""
         logger.error("Ошибка: %s", context.error, exc_info=True)
         await update.message.reply_text("⚠️ Произошла ошибка. Попробуйте позже.", reply_markup=self._main_keyboard())
 
     def run(self):
-        """Запуск бота"""
         self.application.run_polling()
 
 

@@ -5,90 +5,99 @@ from urllib.parse import quote
 import requests
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
-import socket
+import hmac
+import hashlib
+import logging
 
 app = Flask(__name__)
 CORS(app)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler('server.log'), logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///requests.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
+SECRET_KEY = "негр"
+HMAC_KEY = "негр"
+
+
+class VigenereCipher:
+    def __init__(self, key: str):
+        if not key:
+            raise ValueError("Ключ не может быть пустым")
+        self.key = key.lower().replace(' ', '')
+        self.alphabet = 'абвгдежзийклмнопрстуфхцчшщъыьэюя0123456789.,- '
+        self.char_to_index = {char: i for i, char in enumerate(self.alphabet)}
+
+    def encrypt(self, text: str) -> str:
+        encrypted = []
+        key_index = 0
+        for char in text.lower():
+            if char in self.alphabet:
+                shift = self.char_to_index[self.key[key_index % len(self.key)]]
+                encrypted_char = self.alphabet[(self.char_to_index[char] + shift) % len(self.alphabet)]
+                encrypted.append(encrypted_char)
+                key_index += 1
+            else:
+                encrypted.append(char)
+        return ''.join(encrypted)
+
+    def decrypt(self, text: str) -> str:
+        decrypted = []
+        key_index = 0
+        for char in text.lower():
+            if char in self.alphabet:
+                shift = self.char_to_index[self.key[key_index % len(self.key)]]
+                decrypted_char = self.alphabet[(self.char_to_index[char] - shift) % len(self.alphabet)]
+                decrypted.append(decrypted_char)
+                key_index += 1
+            else:
+                decrypted.append(char)
+        return ''.join(decrypted)
+
 
 class RequestLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    method = db.Column(db.String(10))
-    path = db.Column(db.String(255))
-    request_data = db.Column(db.Text)
-    response_data = db.Column(db.Text)
-    status_code = db.Column(db.Integer)
-    user_agent = db.Column(db.Text)
-    client_ip = db.Column(db.String(45))
-    user_city = db.Column(db.String(100))
-    user_country = db.Column(db.String(100))
-    user_id = db.Column(db.String(100))
-    username = db.Column(db.String(100))
-    first_name = db.Column(db.String(100))
-    last_name = db.Column(db.String(100))
-    device_hostname = db.Column(db.String(100))
-    device_ip = db.Column(db.String(45))
-    browser_language = db.Column(db.String(50))
-    browser_platform = db.Column(db.String(50))
-    screen_width = db.Column(db.Integer)
-    screen_height = db.Column(db.Integer)
-    timezone = db.Column(db.String(50))
-    cookies_enabled = db.Column(db.Boolean)
-    online_status = db.Column(db.Boolean)
-    device_memory = db.Column(db.String(50))
-    hardware_concurrency = db.Column(db.String(50))
-    system = db.Column(db.String(100))
-    node_name = db.Column(db.String(100))
-    release = db.Column(db.String(100))
-    version = db.Column(db.String(100))
-    machine = db.Column(db.String(100))
-    processor = db.Column(db.String(100))
-    cpu_count = db.Column(db.Integer)
-    memory_total = db.Column(db.BigInteger)
-    disk_usage = db.Column(db.Float)
-    boot_time = db.Column(db.Float)
-    mac_address = db.Column(db.String(100))
+    method = db.Column(db.String(10), nullable=True)
+    path = db.Column(db.String(255), nullable=True)
+    request_data = db.Column(db.Text, nullable=True)
+    response_data = db.Column(db.Text, nullable=True)
+    status_code = db.Column(db.Integer, nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+    client_ip = db.Column(db.String(45), nullable=True)
+    user_city = db.Column(db.String(100), nullable=True)
+    user_country = db.Column(db.String(100), nullable=True)
+    user_id = db.Column(db.String(100), nullable=True)
+    username = db.Column(db.String(100), nullable=True)
+    first_name = db.Column(db.String(100), nullable=True)
+    last_name = db.Column(db.String(100), nullable=True)
 
 
 @app.after_request
 def log_request(response):
     try:
-        user_id = request.args.get('user_id')
-        username = request.args.get('username')
-        first_name = request.args.get('first_name')
-        last_name = request.args.get('last_name')
-        device_hostname = request.args.get('device_hostname')
-        device_ip = request.args.get('device_ip')
-        browser_language = request.args.get('language')
-        browser_platform = request.args.get('platform')
-        screen_width = request.args.get('screenWidth')
-        screen_height = request.args.get('screenHeight')
-        timezone = request.args.get('timezone')
-        cookies_enabled = request.args.get('cookiesEnabled')
-        online_status = request.args.get('online')
-        device_memory = request.args.get('deviceMemory')
-        hardware_concurrency = request.args.get('hardwareConcurrency')
-        system = request.args.get('system')
-        node_name = request.args.get('node_name')
-        release = request.args.get('release')
-        version = request.args.get('version')
-        machine = request.args.get('machine')
-        processor = request.args.get('processor')
-        cpu_count = request.args.get('cpu_count')
-        memory_total = request.args.get('memory_total')
-        disk_usage = request.args.get('disk_usage')
-        boot_time = request.args.get('boot_time')
-        mac_address = request.args.get('mac_address')
+        encryption = EncryptedServer()
+        decrypted_params = encryption.decrypt_request(request)
 
-        log_entry = RequestLog(
+        user_id = decrypted_params.get('user_id') if decrypted_params else None
+        username = decrypted_params.get('username')
+        first_name = decrypted_params.get('first_name')
+        last_name = decrypted_params.get('last_name')
+
+        logger.debug(f"Raw args: {request.args}")
+        logger.debug(f"Decrypted params: {decrypted_params}")
+
+        data = RequestLog(
             method=request.method,
             path=request.path,
-            request_data=str(request.args),
+            request_data=str(decrypted_params),
             response_data=str(response.get_data())[:500],
             status_code=response.status_code,
             user_agent=request.headers.get('User-Agent'),
@@ -98,50 +107,41 @@ def log_request(response):
             user_id=user_id,
             username=username,
             first_name=first_name,
-            last_name=last_name,
-            device_hostname=device_hostname,
-            device_ip=device_ip,
-            browser_language=browser_language,
-            browser_platform=browser_platform,
-            screen_width=screen_width,
-            screen_height=screen_height,
-            timezone=timezone,
-            cookies_enabled=cookies_enabled == 'true',
-            online_status=online_status == 'true',
-            device_memory=device_memory,
-            hardware_concurrency=hardware_concurrency,
-            system=system,
-            node_name=node_name,
-            release=release,
-            version=version,
-            machine=machine,
-            processor=processor,
-            cpu_count=cpu_count,
-            memory_total=memory_total,
-            disk_usage=disk_usage,
-            boot_time=boot_time,
-            mac_address=mac_address
+            last_name=last_name
         )
-        db.session.add(log_entry)
+        db.session.add(data)
         db.session.commit()
+        logger.info("Лог успешно записан в БД")
     except Exception as e:
-        app.logger.error(f"Ошибка записи в БД: {str(e)}")
+        logger.error(f"Ошибка записи лога: {str(e)}", exc_info=True)
+        db.session.rollback()
     return response
 
 
-class DeviceInfo:
-    @staticmethod
-    def get_device_info():
+class EncryptedServer:
+    def __init__(self):
+        self.cipher = VigenereCipher(SECRET_KEY)
+
+    def decrypt_request(self, request):
         try:
-            hostname = socket.gethostname()
-            ip_address = socket.gethostbyname(hostname)
-            return {
-                "hostname": hostname,
-                "ip_address": ip_address
-            }
+            data = request.get_json() if request.method == 'POST' else request.args
+            return {k: self.cipher.decrypt(v) for k, v in data.items()}
         except Exception as e:
-            print(f"Ошибка получения информации об устройстве: {e}")
-            return {}
+            logger.error(f"Ошибка дешифровки: {str(e)}")
+            return None
+
+    def encrypt_response(self, data):
+        try:
+            if isinstance(data, dict):
+                return {k: self.cipher.encrypt(str(v)) for k, v in data.items()}
+            return data
+        except Exception as e:
+            logger.error(f"Ошибка шифрования: {str(e)}")
+            return data
+
+    def verify_hmac(self, data, signature):
+        expected_signature = hmac.new(HMAC_KEY.encode(), str(data).encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected_signature, signature)
 
 
 class BaseService:
@@ -182,6 +182,35 @@ class WeatherService(BaseService):
         }
 
 
+class WeatherView(MethodView):
+    def __init__(self):
+        self.encryption_handler = EncryptedServer()
+        self.weather_service = WeatherService()
+
+    def get(self):
+        decrypted_params = self.encryption_handler.decrypt_request(request)
+        if not decrypted_params:
+            return jsonify({"error": "Ошибка дешифровки запроса"}), 400
+
+        lat = decrypted_params.get('lat')
+        lon = decrypted_params.get('lon')
+
+        if lat and lon:
+            try:
+                lat = float(lat)
+                lon = float(lon)
+                weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
+            except ValueError:
+                return jsonify({"error": "Неверный формат координат"}), 400
+        else:
+            city, lat, lon = LocationService.get_by_ip()
+            if not all([lat, lon]):
+                return jsonify({"error": "Не удалось определить локацию"}), 400
+            weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
+
+        return jsonify(self.encryption_handler.encrypt_response(weather_data))
+
+
 class LocationService:
     GEOCODING_URL = "http://api.openweathermap.org/geo/1.0/direct"
 
@@ -195,7 +224,7 @@ class LocationService:
                     return data['city'], data['lat'], data['lon']
             return None, None, None
         except Exception as e:
-            print(f"Ошибка определения локации: {e}")
+            logger.error(f"Ошибка определения локации: {e}")
             return None, None, None
 
     @classmethod
@@ -212,7 +241,7 @@ class LocationService:
                     return data[0]['name'], data[0]['lat'], data[0]['lon']
             return None, None, None
         except Exception as e:
-            print(f"Ошибка геокодирования: {e}")
+            logger.error(f"Ошибка геокодирования: {e}")
             return None, None, None
 
 
@@ -290,64 +319,60 @@ class FoursquareService(BaseService):
         return None
 
 
-class WeatherView(MethodView):
-    def get(self):
-        city = request.args.get('city')
-        address = request.args.get('address')
-        weather_service = WeatherService()
-
-        if address:
-            city, lat, lon = LocationService.geocode_address(address)
-        elif not city:
-            city, lat, lon = LocationService.get_by_ip()
-        else:
-            lat = lon = None
-
-        if city and lat and lon:
-            return jsonify(weather_service.get_weather(lat=lat, lon=lon))
-        elif city:
-            return jsonify(weather_service.get_weather(q=city))
-        return jsonify({"error": "Не удалось определить локацию"}), 400
-
-
 class ProductsView(MethodView):
+    def __init__(self):
+        self.encryption_handler = EncryptedServer()
+        self.search_service = SearchService()
+
     def get(self):
-        query = request.args.get('query')
+        decrypted_params = self.encryption_handler.decrypt_request(request)
+        if not decrypted_params:
+            return jsonify({"error": "Ошибка дешифровки запроса"}), 400
+
+        query = decrypted_params.get('query')
         if not query:
             return jsonify({"error": "Необходим параметр query"}), 400
-        return jsonify(SearchService().search_products(query))
+        return jsonify(self.encryption_handler.encrypt_response(self.search_service.search_products(query)))
 
 
 class FoodView(MethodView):
+    def __init__(self):
+        self.encryption_handler = EncryptedServer()
+        self.search_service = SearchService()
+
     def get(self):
-        query = request.args.get('query')
+        decrypted_params = self.encryption_handler.decrypt_request(request)
+        if not decrypted_params:
+            return jsonify({"error": "Ошибка дешифровки запроса"}), 400
+
+        query = decrypted_params.get('query')
         if not query:
             return jsonify({"error": "Необходим параметр query"}), 400
-        return jsonify(SearchService().search_food(query))
+        return jsonify(self.encryption_handler.encrypt_response(self.search_service.search_food(query)))
 
 
 class RestaurantsView(MethodView):
+    def __init__(self):
+        self.encryption_handler = EncryptedServer()
+
     def get(self):
         try:
-            address = request.args.get('address')
-            lat = request.args.get('lat')
-            lon = request.args.get('lon')
-            map_provider = request.args.get('map_provider', 'google')
+            decrypted_params = self.encryption_handler.decrypt_request(request)
+            if not decrypted_params:
+                return jsonify({"error": "Ошибка дешифровки запроса"}), 400
 
-            if address:
-                print(f"Геокодирование адреса: {address}")
-                _, lat, lon = LocationService.geocode_address(address)
-                if not all([lat, lon]):
-                    return jsonify({"error": "Не удалось геокодировать адрес"}), 400
+            lat = decrypted_params.get('lat')
+            lon = decrypted_params.get('lon')
 
-            if not all([lat, lon]):
-                print("Определение местоположения по IP")
+            try:
+                lat = float(lat)
+                lon = float(lon)
+            except (ValueError, TypeError):
                 city, lat, lon = LocationService.get_by_ip()
                 if not all([lat, lon]):
                     return jsonify({"error": "Не удалось определить местоположение"}), 400
 
-            print(f"Используемые координаты: lat={lat}, lon={lon}")
-            service = FoursquareService(map_provider)
+            service = FoursquareService('google')
             result = service.search_places({
                 "ll": f"{lat},{lon}",
                 "categories": "13065",
@@ -355,32 +380,34 @@ class RestaurantsView(MethodView):
                 "limit": 10
             })
 
-            if isinstance(result, dict) and "error" in result:
-                return jsonify(result), 500
-
-            return jsonify(result)
+            return jsonify(self.encryption_handler.encrypt_response(result))
         except Exception as e:
-            print(f"Ошибка в RestaurantsView: {str(e)}")
+            logger.error(f"Ошибка в RestaurantsView: {str(e)}")
             return jsonify({"error": "Внутренняя ошибка сервера"}), 500
 
 
 class HotelsView(MethodView):
+    def __init__(self):
+        self.encryption_handler = EncryptedServer()
+
     def get(self):
         try:
-            address = request.args.get('address')
-            lat = request.args.get('lat')
-            lon = request.args.get('lon')
-            map_provider = request.args.get('map_provider', 'google')
+            decrypted_params = self.encryption_handler.decrypt_request(request)
+            if not decrypted_params:
+                return jsonify({"error": "Ошибка дешифровки запроса"}), 400
 
-            if address:
-                _, lat, lon = LocationService.geocode_address(address)
+            lat = decrypted_params.get('lat')
+            lon = decrypted_params.get('lon')
 
-            if not all([lat, lon]):
+            try:
+                lat = float(lat)
+                lon = float(lon)
+            except (ValueError, TypeError):
                 city, lat, lon = LocationService.get_by_ip()
                 if not all([lat, lon]):
                     return jsonify({"error": "Не удалось определить местоположение"}), 400
 
-            service = FoursquareService(map_provider)
+            service = FoursquareService('google')
             result = service.search_places({
                 "ll": f"{lat},{lon}",
                 "categories": "19048",
@@ -388,67 +415,86 @@ class HotelsView(MethodView):
                 "limit": 10
             })
 
-            if isinstance(result, dict) and "error" in result:
-                return jsonify(result), 500
-
-            return jsonify(result)
+            return jsonify(self.encryption_handler.encrypt_response(result))
         except Exception as e:
-            print(f"Ошибка в HotelsView: {str(e)}")
+            logger.error(f"Ошибка в HotelsView: {str(e)}")
             return jsonify({"error": "Внутренняя ошибка сервера"}), 500
 
 
 class AddressView(MethodView):
+    def __init__(self):
+        self.encryption_handler = EncryptedServer()
+
     def get(self):
         try:
-            address = request.args.get('address')
-            lat = request.args.get('lat')
-            lon = request.args.get('lon')
-            map_provider = request.args.get('map_provider', 'google')
+            decrypted_params = self.encryption_handler.decrypt_request(request)
+            if not decrypted_params:
+                return jsonify({"error": "Ошибка дешифровки запроса"}), 400
 
-            if address:
-                _, lat, lon = LocationService.geocode_address(address)
+            lat = decrypted_params.get('lat')
+            lon = decrypted_params.get('lon')
 
-            if not all([lat, lon]):
+            try:
+                lat = float(lat)
+                lon = float(lon)
+            except (ValueError, TypeError):
                 city, lat, lon = LocationService.get_by_ip()
                 if not all([lat, lon]):
                     return jsonify({"error": "Не удалось определить местоположение"}), 400
 
-            service = FoursquareService(map_provider)
+            service = FoursquareService('google')
             result = service.search_places({
                 "ll": f"{lat},{lon}",
                 "radius": 100,
                 "limit": 1
             })
-            return jsonify(result[0] if isinstance(result, list) and result else {"address": "Адрес недоступен"})
+            return jsonify(self.encryption_handler.encrypt_response(
+                result[0] if isinstance(result, list) and result else {"address": "Адрес недоступен"}
+            ))
         except Exception as e:
-            print(f"Ошибка в AddressView: {str(e)}")
+            logger.error(f"Ошибка в AddressView: {str(e)}")
             return jsonify({"error": "Внутренняя ошибка сервера"}), 500
 
 
 class WebSearchView(MethodView):
+    def __init__(self):
+        self.encryption_handler = EncryptedServer()
+        self.search_service = SearchService()
+
     def get(self):
-        query = request.args.get('query')
+        decrypted_params = self.encryption_handler.decrypt_request(request)
+        if not decrypted_params:
+            return jsonify({"error": "Ошибка дешифровки запроса"}), 400
+
+        query = decrypted_params.get('query')
         if not query:
             return jsonify({"error": "Необходим параметр query"}), 400
-        return jsonify(SearchService().search_web(query))
+        return jsonify(self.encryption_handler.encrypt_response(self.search_service.search_web(query)))
 
 
 class FindPlacesView(MethodView):
+    def __init__(self):
+        self.encryption_handler = EncryptedServer()
+
     def get(self):
         try:
-            address = request.args.get('address')
-            lat = request.args.get('lat')
-            lon = request.args.get('lon')
-            query = request.args.get('query')
-            map_provider = request.args.get('map_provider', 'google')
+            decrypted_params = self.encryption_handler.decrypt_request(request)
+            if not decrypted_params:
+                return jsonify({"error": "Ошибка дешифровки запроса"}), 400
 
-            if address:
-                _, lat, lon = LocationService.geocode_address(address)
+            lat = decrypted_params.get('lat')
+            lon = decrypted_params.get('lon')
+            query = decrypted_params.get('query')
 
-            if not all([lat, lon, query]):
-                return jsonify({"error": "Требуются параметры lat, lon и query"}), 400
+            try:
+                lat = float(lat)
+                lon = float(lon)
+            except (ValueError, TypeError):
+                city, lat, lon = LocationService.get_by_ip()
+                if not all([lat, lon]):
+                    return jsonify({"error": "Не удалось определить местоположение"}), 400
 
-            service = FoursquareService(map_provider)
+            service = FoursquareService('google')
             result = service.search_places({
                 "ll": f"{lat},{lon}",
                 "query": query,
@@ -456,32 +502,36 @@ class FindPlacesView(MethodView):
                 "limit": 10
             })
 
-            if isinstance(result, dict) and "error" in result:
-                return jsonify(result), 500
-
-            return jsonify(result)
+            return jsonify(self.encryption_handler.encrypt_response(result))
         except Exception as e:
-            print(f"Ошибка в FindPlacesView: {str(e)}")
+            logger.error(f"Ошибка в FindPlacesView: {str(e)}")
             return jsonify({"error": "Внутренняя ошибка сервера"}), 500
 
 
 class SearchExactView(MethodView):
+    def __init__(self):
+        self.encryption_handler = EncryptedServer()
+
     def get(self):
         try:
-            query = request.args.get('query')
-            map_provider = request.args.get('map_provider', 'google')
+            decrypted_params = self.encryption_handler.decrypt_request(request)
+            if not decrypted_params:
+                return jsonify({"error": "Ошибка дешифровки запроса"}), 400
 
+            query = decrypted_params.get('query')
             if not query:
                 return jsonify({"error": "Необходим параметр query"}), 400
 
-            service = FoursquareService(map_provider)
+            service = FoursquareService('google')
             result = service.search_places({
                 "query": query,
                 "limit": 1
             })
-            return jsonify(result[0] if isinstance(result, list) and result else {"error": "Место не найдено"})
+            return jsonify(self.encryption_handler.encrypt_response(
+                result[0] if isinstance(result, list) and result else {"error": "Место не найдено"}
+            ))
         except Exception as e:
-            print(f"Ошибка в SearchExactView: {str(e)}")
+            logger.error(f"Ошибка в SearchExactView: {str(e)}")
             return jsonify({"error": "Внутренняя ошибка сервера"}), 500
 
 

@@ -1,10 +1,81 @@
+const HMAC_KEY = "негр";
+const SECRET_KEY = "негр";
+
 let mode = 'auto';
 let currentSearchType = '';
 
+class VigenereCipher {
+    constructor(key) {
+        if (!key) throw new Error("Ключ не может быть пустым");
+        this.key = key.toLowerCase().replace(' ', '');
+        this.alphabet = 'абвгдежзийклмнопрстуфхцчшщъыьэюя0123456789.,- ';
+        this.charToIndex = Object.fromEntries(
+            [...this.alphabet].map((char, i) => [char, i])
+        );
+    }
+
+    encrypt(text) {
+        return [...text.toLowerCase()].map((char, i) => {
+            if (this.alphabet.includes(char)) {
+                const shift = this.charToIndex[this.key[i % this.key.length]];
+                const newIndex = (this.charToIndex[char] + shift) % this.alphabet.length;
+                return this.alphabet[newIndex];
+            }
+            return char;
+        }).join('');
+    }
+
+    decrypt(text) {
+        return [...text.toLowerCase()].map((char, i) => {
+            if (this.alphabet.includes(char)) {
+                const shift = this.charToIndex[this.key[i % this.key.length]];
+                const newIndex = (this.charToIndex[char] - shift + this.alphabet.length) % this.alphabet.length;
+                return this.alphabet[newIndex];
+            }
+            return char;
+        }).join('');
+    }
+}
+
+class EncryptedClient {
+    constructor() {
+        this.cipher = new VigenereCipher(SECRET_KEY);
+    }
+
+    encryptRequest(params) {
+        try {
+            return Object.fromEntries(
+                Object.entries(params).map(([k, v]) => [k, this.cipher.encrypt(String(v))])
+            );
+        } catch (e) {
+            console.error("Ошибка шифрования:", e);
+            return params;
+        }
+    }
+
+    decryptResponse(data) {
+        try {
+            if (typeof data === 'object') {
+                return Object.fromEntries(
+                    Object.entries(data).map(([k, v]) => [k, this.cipher.decrypt(v)])
+                );
+            }
+            return data;
+        } catch (e) {
+            console.error("Ошибка дешифровки:", e);
+            return data;
+        }
+    }
+}
+
+const encryptedClient = new EncryptedClient();
+
+function generateHmac(data) {
+    return CryptoJS.HmacSHA256(JSON.stringify(data), HMAC_KEY).toString(CryptoJS.enc.Hex);
+}
+
 function closeAllDialogs() {
-    document.querySelectorAll('.dialog').forEach(dialog => {
-        dialog.classList.add('hidden');
-    });
+    document.querySelectorAll('.dialog').forEach(dialog => dialog.classList.add('hidden'));
 }
 
 function showWeatherDialog() {
@@ -43,23 +114,33 @@ async function getWeather() {
 
     try {
         const userInfo = await getUserInfo();
-        const response = await fetch(`http://127.0.0.1:5000/get_weather?city=${city}&${new URLSearchParams(userInfo)}`);
+        const params = { city, ...userInfo };
+
+        const encryptedParams = encryptedClient.encryptRequest(params);
+
+        const hmacSignature = generateHmac(encryptedParams);
+
+        const response = await fetch(`http://127.0.0.1:5000/get_weather?${new URLSearchParams(encryptedParams)}`, {
+            headers: { 'X-HMAC-Signature': hmacSignature }
+        });
+
         if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
-        const data = await response.json();
+        const encryptedData = await response.json();
+        const data = encryptedClient.decryptResponse(encryptedData);
+
         if (data.error) {
             resultArea.textContent = `Ошибка: ${data.error}`;
         } else {
-            const formattedWeather = `
-                Погода в ${data.city}, ${data.country}:
-                Температура: ${data.temperature}°C
-                Ощущается как: ${data.feels_like}°C
-                Влажность: ${data.humidity}%
-                Давление: ${data.pressure} hPa
-                Скорость ветра: ${data.wind_speed} м/с
+            resultArea.innerHTML = `
+                Погода в ${data.city}, ${data.country}:<br>
+                Температура: ${data.temperature}°C<br>
+                Ощущается как: ${data.feels_like}°C<br>
+                Влажность: ${data.humidity}%<br>
+                Давление: ${data.pressure} hPa<br>
+                Скорость ветра: ${data.wind_speed} м/с<br>
                 Описание: ${data.description}
             `;
-            resultArea.innerHTML = formattedWeather.replace(/\n/g, '<br>');
         }
     } catch (error) {
         resultArea.textContent = `Ошибка: ${error.message}`;
@@ -71,22 +152,19 @@ async function getUserInfo() {
         const ipResponse = await fetch('https://api.ipify.org?format=json');
         const ipData = await ipResponse.json();
 
-        const browserInfo = {
+        return {
             ip: ipData.ip,
             userAgent: navigator.userAgent,
             language: navigator.language,
             platform: navigator.platform,
             screenWidth: window.screen.width,
             screenHeight: window.screen.height,
-            isJavaScriptEnabled: true,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             cookiesEnabled: navigator.cookieEnabled,
             online: navigator.onLine,
             deviceMemory: navigator.deviceMemory || 'unknown',
             hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
         };
-
-        return browserInfo;
     } catch (error) {
         console.error("Ошибка получения информации о пользователе:", error);
         return {};
@@ -122,14 +200,25 @@ async function doSearch() {
 
     try {
         const userInfo = await getUserInfo();
-        const endpoint = currentSearchType === 'places'
-            ? `search_places?query=${query}&${new URLSearchParams(userInfo)}`
-            : `search_${currentSearchType}?query=${query}&${new URLSearchParams(userInfo)}`;
+        const params = { query, ...userInfo };
 
-        const response = await fetch(`http://127.0.0.1:5000/${endpoint}`);
+        const encryptedParams = encryptedClient.encryptRequest(params);
+
+        const hmacSignature = generateHmac(encryptedParams);
+
+        const endpoint = currentSearchType === 'places'
+            ? `search_places?${new URLSearchParams(encryptedParams)}`
+            : `search_${currentSearchType}?${new URLSearchParams(encryptedParams)}`;
+
+        const response = await fetch(`http://127.0.0.1:5000/${endpoint}`, {
+            headers: { 'X-HMAC-Signature': hmacSignature }
+        });
+
         if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
-        const data = await response.json();
+        const encryptedData = await response.json();
+        const data = encryptedClient.decryptResponse(encryptedData);
+
         results.innerHTML = data.error
             ? `Ошибка: ${data.error}`
             : Object.entries(data).map(([key, val]) => `<p>${key}: <a href="${val}" target="_blank">${val}</a></p>`).join('');
@@ -143,10 +232,21 @@ async function handlePlaces(type) {
     try {
         const coords = await getCurrentLocation();
         const userInfo = await getUserInfo();
-        const response = await fetch(`http://127.0.0.1:5000/find_${type}?lat=${coords.latitude}&lon=${coords.longitude}&${new URLSearchParams(userInfo)}`);
+        const params = { lat: coords.latitude, lon: coords.longitude, ...userInfo };
+
+        const encryptedParams = encryptedClient.encryptRequest(params);
+
+        const hmacSignature = generateHmac(encryptedParams);
+
+        const response = await fetch(`http://127.0.0.1:5000/find_${type}?${new URLSearchParams(encryptedParams)}`, {
+            headers: { 'X-HMAC-Signature': hmacSignature }
+        });
+
         if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
-        const data = await response.json();
+        const encryptedData = await response.json();
+        const data = encryptedClient.decryptResponse(encryptedData);
+
         data.error ? alert(data.error) : displayResults(type === 'restaurants' ? 'Рестораны' : 'Отели', data);
     } catch (error) {
         alert(`Ошибка: ${error.message}`);
@@ -158,13 +258,24 @@ async function handleAddress() {
     try {
         const coords = await getCurrentLocation();
         const userInfo = await getUserInfo();
-        const response = await fetch(`http://127.0.0.1:5000/get_address?lat=${coords.latitude}&lon=${coords.longitude}&${new URLSearchParams(userInfo)}`);
+        const params = { lat: coords.latitude, lon: coords.longitude, ...userInfo };
+
+        const encryptedParams = encryptedClient.encryptRequest(params);
+
+        const hmacSignature = generateHmac(encryptedParams);
+
+        const response = await fetch(`http://127.0.0.1:5000/get_address?${new URLSearchParams(encryptedParams)}`, {
+            headers: { 'X-HMAC-Signature': hmacSignature }
+        });
+
         if (!response.ok) throw new Error(`Ошибка HTTP: ${response.status}`);
 
-        const data = await response.json();
+        const encryptedData = await response.json();
+        const data = encryptedClient.decryptResponse(encryptedData);
+
         data.error
             ? alert(data.error)
-            : displayResults('Адрес', {Адрес: data.address, Карта: data.map_link});
+            : displayResults('Адрес', { Адрес: data.address, Карта: data.map_link });
     } catch (error) {
         alert(`Ошибка: ${error.message}`);
     }
