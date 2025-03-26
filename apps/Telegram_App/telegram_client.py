@@ -122,11 +122,16 @@ class BaseClient:
         self.device_info = DeviceInfo.get_device_info()
 
     def _prepare_params(self, params):
+        params = {k: str(v) for k, v in params.items()}
         combined = {**params, **self.device_info}
         encrypted = self.encryption_handler.encrypt_request(combined)
+
         return {
             "params": encrypted,
-            "headers": {"X-HMAC-Signature": self.encryption_handler.generate_hmac(encrypted)}
+            "headers": {
+                "X-HMAC-Signature": self.encryption_handler.generate_hmac(encrypted),
+                "Content-Type": "application/json"
+            }
         }
 
     def _process_response(self, response):
@@ -158,6 +163,7 @@ class TelegramBot(BaseClient):
         return ReplyKeyboardMarkup([["🚫 Отмена"]], resize_keyboard=True)
 
     def _register_handlers(self):
+        self.application.add_handler(CommandHandler("start", self._start))
         conv_handler = ConversationHandler(
             entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_main_menu)],
             states={
@@ -172,6 +178,19 @@ class TelegramBot(BaseClient):
 
         self.application.add_handler(conv_handler)
         self.application.add_error_handler(self._error_handler)
+
+    async def _start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /start"""
+        await update.message.reply_text(
+            "👋 Привет! Я умный бот-помощник. Вот что я умею:\n\n"
+            "• Показывать погоду по местоположению\n"
+            "• Искать товары, еду и рестораны\n"
+            "• Помогать с поиском отелей\n"
+            "• И многое другое!\n\n"
+            "Выберите действие в меню ниже:",
+            reply_markup=self._main_keyboard()
+        )
+        return ConversationHandler.END
 
     async def _handle_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = update.message.text
@@ -260,6 +279,7 @@ class TelegramBot(BaseClient):
         action = context.user_data.get("action")
         query = text
 
+        response = None
         try:
             base_params = {
                 "user_id": update.message.from_user.id,
@@ -311,7 +331,7 @@ class TelegramBot(BaseClient):
                         f"Ссылка на карту: {data['map_link']}"
                     )
 
-            if response.status_code != 200:
+            if response is not None and response.status_code != 200:
                 message = "⚠️ Ошибка при выполнении запроса"
 
         except Exception as e:
@@ -322,19 +342,22 @@ class TelegramBot(BaseClient):
         return await self._return_to_main(update)
 
     async def _handle_location(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        location = update.message.location
-        lat = location.latitude
-        lon = location.longitude
-        action = context.user_data.get("action")
 
         try:
+            location = update.message.location
+            action = context.user_data.get("action")
+
+            lat = round(location.latitude, 6)
+            lon = round(location.longitude, 6)
+
             base_params = {
                 "user_id": update.message.from_user.id,
                 "username": update.message.from_user.username,
                 "first_name": update.message.from_user.first_name,
                 "last_name": update.message.from_user.last_name,
                 "lat": str(lat),
-                "lon": str(lon)
+                "lon": str(lon),
+                "action": action,
             }
 
             if action == "weather":

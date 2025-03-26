@@ -148,11 +148,11 @@ class BaseService:
     @staticmethod
     def _handle_response(response, success_status=200):
         if response.status_code != success_status:
-            return None, {"error": "Ошибка внешнего сервиса"}, 500
+            return None, {"error": f"Ошибка {response.status_code}: {response.text}"}
         try:
             return response.json(), None
         except Exception as e:
-            return None, {"error": str(e)}, 500
+            return None, {"error": f"Ошибка парсинга JSON: {str(e)}"}
 
 
 class WeatherService(BaseService):
@@ -186,29 +186,48 @@ class WeatherView(MethodView):
     def __init__(self):
         self.encryption_handler = EncryptedServer()
         self.weather_service = WeatherService()
+        self.location_service = LocationService()
 
     def get(self):
-        decrypted_params = self.encryption_handler.decrypt_request(request)
-        if not decrypted_params:
-            return jsonify({"error": "Ошибка дешифровки запроса"}), 400
+        try:
+            decrypted = self.encryption_handler.decrypt_request(request)
+            if not decrypted:
+                return jsonify({"error": "Invalid request"}), 400
 
-        lat = decrypted_params.get('lat')
-        lon = decrypted_params.get('lon')
+            lat_str = decrypted.get('lat')
+            lon_str = decrypted.get('lon')
+            city = decrypted.get('q')
 
-        if lat and lon:
-            try:
-                lat = float(lat)
-                lon = float(lon)
+            if lat_str and lon_str:
+                try:
+                    lat = float(lat_str)
+                    lon = float(lon_str)
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Coord conversion error: {str(e)}")
+                    return jsonify({"error": "Invalid coordinates format"}), 400
+
+                logger.info(f"Using coordinates: {lat}, {lon}")
                 weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
-            except ValueError:
-                return jsonify({"error": "Неверный формат координат"}), 400
-        else:
-            city, lat, lon = LocationService.get_by_ip()
-            if not all([lat, lon]):
-                return jsonify({"error": "Не удалось определить локацию"}), 400
-            weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
 
-        return jsonify(self.encryption_handler.encrypt_response(weather_data))
+            elif city:
+                logger.info(f"Geocoding city: {city}")
+                _, lat, lon = self.location_service.geocode_address(city)
+                if not all([lat, lon]):
+                    return jsonify({"error": "City not found"}), 404
+                weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
+
+            else:
+                logger.warning("Falling back to IP geolocation")
+                city, lat, lon = self.location_service.get_by_ip()
+                if not all([lat, lon]):
+                    return jsonify({"error": "Location detection failed"}), 400
+                weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
+
+            return jsonify(self.encryption_handler.encrypt_response(weather_data))
+
+        except Exception as e:
+            logger.error(f"WeatherView error: {str(e)}")
+            return jsonify({"error": "Internal server error"}), 500
 
 
 class LocationService:
@@ -217,11 +236,11 @@ class LocationService:
     @classmethod
     def get_by_ip(cls):
         try:
-            response = requests.get("http://ip-api.com/json")
-            if response.status_code == 200:
-                data = response.json()
-                if data['status'] == 'success':
-                    return data['city'], data['lat'], data['lon']
+            response = requests.get("http://ip-api.com/json", timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if data.get('status') == 'success':
+                return data['city'], data['lat'], data['lon']
             return None, None, None
         except Exception as e:
             logger.error(f"Ошибка определения локации: {e}")
@@ -280,11 +299,19 @@ class FoursquareService(BaseService):
 
     def search_places(self, params):
         try:
-            response = requests.get(self.BASE_URL, headers=self.HEADERS, params=params)
+            response = requests.get(
+                self.BASE_URL,
+                headers=self.HEADERS,
+                params=params,
+                timeout=5
+            )
             data, error = self._handle_response(response)
-            return [self._parse_place(place) for place in data.get('results', [])] if data else error
+            if data:
+                return [self._parse_place(place) for place in data.get('results', [])]
+            return error if error else []
         except Exception as e:
-            return {"error": str(e)}, 500
+            logger.error(f"Ошибка при поиске мест: {e}")
+            return {"error": str(e)}
 
     def _parse_place(self, place):
         location = place.get('location', {})
@@ -448,9 +475,13 @@ class AddressView(MethodView):
                 "radius": 100,
                 "limit": 1
             })
-            return jsonify(self.encryption_handler.encrypt_response(
-                result[0] if isinstance(result, list) and result else {"address": "Адрес недоступен"}
-            ))
+            if isinstance(result, list) and len(result) > 0:
+                return jsonify(self.encryption_handler.encrypt_response(result[0]))
+            else:
+                return jsonify(self.encryption_handler.encrypt_response(
+                    {"address": "Адрес недоступен"}
+                ))
+
         except Exception as e:
             logger.error(f"Ошибка в AddressView: {str(e)}")
             return jsonify({"error": "Внутренняя ошибка сервера"}), 500
