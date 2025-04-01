@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ИИ Ассистент</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Ubuntu+Mono&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="cyber-line"></div>
+    <div class="corner-decoration corner-tl"></div>
+    <div class="corner-decoration corner-tr"></div>
+    <div class="corner-decoration corner-bl"></div>
+    <div class="corner-decoration corner-br"></div>
+
+    <div class="container">
+        <h1 class="neon-title">ИИ<span class="blink">_</span>АССИСТЕНТ</h1>
+        <p class="subtitle pulse">Версия 1.0 | Подключено</p>
+
+        <div class="button-grid">
+            <button class="neon-btn" onclick="showWeatherDialog()">
+                <span class="btn-text">🌤 ПОГОДА</span>
+                <span class="btn-glow"></span>
+            </button>
+            <button class="neon-btn" onclick="showSearchDialog('products')">
+                <span class="btn-text">🛒 ТОВАРЫ</span>
+                <span class="btn-glow"></span>
+            </button>
+            <button class="neon-btn" onclick="showSearchDialog('food')">
+                <span class="btn-text">🍔 ЕДА</span>
+                <span class="btn-glow"></span>
+            </button>
+            <button class="neon-btn" onclick="handlePlaces('restaurants')">
+                <span class="btn-text">🍽 РЕСТОРАНЫ</span>
+                <span class="btn-glow"></span>
+            </button>
+            <button class="neon-btn" onclick="handlePlaces('hotels')">
+                <span class="btn-text">🏨 ОТЕЛИ</span>
+                <span class="btn-glow"></span>
+            </button>
+            <button class="neon-btn" onclick="handleAddress()">
+                <span class="btn-text">📍 АДРЕС</span>
+                <span class="btn-glow"></span>
+            </button>
+            <button class="neon-btn" onclick="showSearchDialog('web')">
+                <span class="btn-text">🌐 ВЕБ</span>
+                <span class="btn-glow"></span>
+            </button>
+            <button class="neon-btn" onclick="showPlacesSearchDialog()">
+                <span class="btn-text">🔎 МЕСТА</span>
+                <span class="btn-glow"></span>
+            </button>
+            <button class="neon-btn" onclick="showExactSearchDialog()">
+                <span class="btn-text">🎯 ПОИСК</span>
+                <span class="btn-glow"></span>
+            </button>
+        </div>
+    </div>
+
+    <div id="weather-dialog" class="dialog hidden neon-box">
+        <div class="dialog-header">
+            <h2>🌀 ПОГОДНЫЙ СКАНЕР</h2>
+            <div class="scan-line"></div>
+        </div>
+        <div class="dialog-content">
+            <button id="toggle-mode-btn" class="neon-btn small" onclick="toggleMode()">
+                <span class="btn-text">АВТО-ОПРЕДЕЛЕНИЕ</span>
+                <span class="btn-glow"></span>
+            </button>
+            <input type="text" id="city-input" placeholder="ВВЕДИТЕ ГОРОД" class="hidden neon-input">
+            <button class="neon-btn small" onclick="getWeather()">
+                <span class="btn-text">ПОЛУЧИТЬ ДАННЫЕ</span>
+                <span class="btn-glow"></span>
+            </button>
+            <div id="weather-result" class="result-box"></div>
+        </div>
+    </div>
+
+    <div id="search-dialog" class="dialog hidden neon-box">
+        <div class="dialog-header">
+            <h2 id="search-title">ПОИСК</h2>
+            <div class="scan-line"></div>
+        </div>
+        <div class="dialog-content">
+            <input type="text" id="search-input" placeholder="ВВЕДИТЕ ЗАПРОС" class="neon-input">
+            <button class="neon-btn small" onclick="doSearch()">
+                <span class="btn-text">НАЙТИ</span>
+                <span class="btn-glow"></span>
+            </button>
+            <div id="search-results" class="result-box"></div>
+        </div>
+    </div>
+
+    <div id="result-dialog" class="dialog hidden neon-box">
+        <div class="dialog-header">
+            <h2 id="result-title">РЕЗУЛЬТАТЫ</h2>
+            <div class="scan-line"></div>
+        </div>
+        <div class="dialog-content">
+            <div id="result-content" class="result-box"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
