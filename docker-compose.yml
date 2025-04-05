@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  server:
+    build: ./server
+    ports:
+      - "5000:5000"
+    networks:
+      - my-network
+    restart: unless-stopped
+    volumes:
+      - ./server/instance:/app/instance
+    environment:
+      - FLASK_APP=app.py
+      - DB_PATH=/app/instance/requests.db
+      - HMAC_KEY=негр
+      - SECRET_KEY=негр
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  telegram-bot:
+    build: ./Telegram_App
+    networks:
+      - my-network
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      - BASE_URL=http://server:5000
+      - HMAC_KEY=негр
+      - SECRET_KEY=негр
+
+  website:
+    build: ./Web_App
+    ports:
+      - "50:50"
+    networks:
+      - my-network
+    restart: unless-stopped
+
+networks:
+  my-network:
+    driver: bridge
