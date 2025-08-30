@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_migrate import Migrate
 from flask.views import MethodView
 from flask_cors import CORS
 from urllib.parse import quote
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///requests.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+
+migrate = Migrate(app, db)
 
 SECRET_KEY = "негр"
 HMAC_KEY = "негр"

@@ -65,39 +65,33 @@ class VigenereCipher:
 class RequestLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    method = db.Column(db.String(10), nullable=True)
-    path = db.Column(db.String(255), nullable=True)
-    request_data = db.Column(db.Text, nullable=True)
-    response_data = db.Column(db.Text, nullable=True)
-    status_code = db.Column(db.Integer, nullable=True)
-    user_agent = db.Column(db.Text, nullable=True)
-    client_ip = db.Column(db.String(45), nullable=True)
-    user_city = db.Column(db.String(100), nullable=True)
-    user_country = db.Column(db.String(100), nullable=True)
-    user_id = db.Column(db.String(100), nullable=True)
-    username = db.Column(db.String(100), nullable=True)
-    first_name = db.Column(db.String(100), nullable=True)
-    last_name = db.Column(db.String(100), nullable=True)
+    method = db.Column(db.String(10))
+    path = db.Column(db.String(255))
+    request_data = db.Column(db.Text)
+    response_data = db.Column(db.Text)
+    status_code = db.Column(db.Integer)
+    user_agent = db.Column(db.Text)
+    client_ip = db.Column(db.String(45))
+    user_city = db.Column(db.String(100))
+    user_country = db.Column(db.String(100))
+    user_id = db.Column(db.String(100))
+    username = db.Column(db.String(100))
+    first_name = db.Column(db.String(100))
+    last_name = db.Column(db.String(100))
 
 
 @app.after_request
 def log_request(response):
     try:
-        encryption = EncryptedServer()
-        decrypted_params = encryption.decrypt_request(request)
-
-        user_id = decrypted_params.get('user_id') if decrypted_params else None
-        username = decrypted_params.get('username')
-        first_name = decrypted_params.get('first_name')
-        last_name = decrypted_params.get('last_name')
-
-        logger.debug(f"Raw args: {request.args}")
-        logger.debug(f"Decrypted params: {decrypted_params}")
+        user_id = request.args.get('user_id')
+        username = request.args.get('username')
+        first_name = request.args.get('first_name')
+        last_name = request.args.get('last_name')
 
         data = RequestLog(
             method=request.method,
             path=request.path,
-            request_data=str(decrypted_params),
+            request_data=str(request.args),
             response_data=str(response.get_data())[:500],
             status_code=response.status_code,
             user_agent=request.headers.get('User-Agent'),
@@ -111,10 +105,8 @@ def log_request(response):
         )
         db.session.add(data)
         db.session.commit()
-        logger.info("Лог успешно записан в БД")
     except Exception as e:
-        logger.error(f"Ошибка записи лога: {str(e)}", exc_info=True)
-        db.session.rollback()
+        app.logger.error(f"Error logging request: {str(e)}")
     return response
 
 
@@ -148,11 +140,11 @@ class BaseService:
     @staticmethod
     def _handle_response(response, success_status=200):
         if response.status_code != success_status:
-            return None, {"error": f"Ошибка {response.status_code}: {response.text}"}
+            return None, {"error": "Ошибка внешнего сервиса"}, 500
         try:
             return response.json(), None
         except Exception as e:
-            return None, {"error": f"Ошибка парсинга JSON: {str(e)}"}
+            return None, {"error": str(e)}, 500
 
 
 class WeatherService(BaseService):
@@ -186,48 +178,29 @@ class WeatherView(MethodView):
     def __init__(self):
         self.encryption_handler = EncryptedServer()
         self.weather_service = WeatherService()
-        self.location_service = LocationService()
 
     def get(self):
-        try:
-            decrypted = self.encryption_handler.decrypt_request(request)
-            if not decrypted:
-                return jsonify({"error": "Invalid request"}), 400
+        decrypted_params = self.encryption_handler.decrypt_request(request)
+        if not decrypted_params:
+            return jsonify({"error": "Ошибка дешифровки запроса"}), 400
 
-            lat_str = decrypted.get('lat')
-            lon_str = decrypted.get('lon')
-            city = decrypted.get('q')
+        lat = decrypted_params.get('lat')
+        lon = decrypted_params.get('lon')
 
-            if lat_str and lon_str:
-                try:
-                    lat = float(lat_str)
-                    lon = float(lon_str)
-                except (ValueError, TypeError) as e:
-                    logger.error(f"Coord conversion error: {str(e)}")
-                    return jsonify({"error": "Invalid coordinates format"}), 400
-
-                logger.info(f"Using coordinates: {lat}, {lon}")
+        if lat and lon:
+            try:
+                lat = float(lat)
+                lon = float(lon)
                 weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
+            except ValueError:
+                return jsonify({"error": "Неверный формат координат"}), 400
+        else:
+            city, lat, lon = LocationService.get_by_ip()
+            if not all([lat, lon]):
+                return jsonify({"error": "Не удалось определить локацию"}), 400
+            weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
 
-            elif city:
-                logger.info(f"Geocoding city: {city}")
-                _, lat, lon = self.location_service.geocode_address(city)
-                if not all([lat, lon]):
-                    return jsonify({"error": "City not found"}), 404
-                weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
-
-            else:
-                logger.warning("Falling back to IP geolocation")
-                city, lat, lon = self.location_service.get_by_ip()
-                if not all([lat, lon]):
-                    return jsonify({"error": "Location detection failed"}), 400
-                weather_data = self.weather_service.get_weather(lat=lat, lon=lon)
-
-            return jsonify(self.encryption_handler.encrypt_response(weather_data))
-
-        except Exception as e:
-            logger.error(f"WeatherView error: {str(e)}")
-            return jsonify({"error": "Internal server error"}), 500
+        return jsonify(self.encryption_handler.encrypt_response(weather_data))
 
 
 class LocationService:
@@ -236,11 +209,11 @@ class LocationService:
     @classmethod
     def get_by_ip(cls):
         try:
-            response = requests.get("http://ip-api.com/json", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            if data.get('status') == 'success':
-                return data['city'], data['lat'], data['lon']
+            response = requests.get("http://ip-api.com/json")
+            if response.status_code == 200:
+                data = response.json()
+                if data['status'] == 'success':
+                    return data['city'], data['lat'], data['lon']
             return None, None, None
         except Exception as e:
             logger.error(f"Ошибка определения локации: {e}")
@@ -299,19 +272,11 @@ class FoursquareService(BaseService):
 
     def search_places(self, params):
         try:
-            response = requests.get(
-                self.BASE_URL,
-                headers=self.HEADERS,
-                params=params,
-                timeout=5
-            )
+            response = requests.get(self.BASE_URL, headers=self.HEADERS, params=params)
             data, error = self._handle_response(response)
-            if data:
-                return [self._parse_place(place) for place in data.get('results', [])]
-            return error if error else []
+            return [self._parse_place(place) for place in data.get('results', [])] if data else error
         except Exception as e:
-            logger.error(f"Ошибка при поиске мест: {e}")
-            return {"error": str(e)}
+            return {"error": str(e)}, 500
 
     def _parse_place(self, place):
         location = place.get('location', {})
@@ -475,13 +440,9 @@ class AddressView(MethodView):
                 "radius": 100,
                 "limit": 1
             })
-            if isinstance(result, list) and len(result) > 0:
-                return jsonify(self.encryption_handler.encrypt_response(result[0]))
-            else:
-                return jsonify(self.encryption_handler.encrypt_response(
-                    {"address": "Адрес недоступен"}
-                ))
-
+            return jsonify(self.encryption_handler.encrypt_response(
+                result[0] if isinstance(result, list) and result else {"address": "Адрес недоступен"}
+            ))
         except Exception as e:
             logger.error(f"Ошибка в AddressView: {str(e)}")
             return jsonify({"error": "Внутренняя ошибка сервера"}), 500
